@@ -1,10 +1,11 @@
 import type { ItemType } from '@lobehub/ui';
 import { ActionIcon, DropdownMenu, Flexbox, Icon, Text, TooltipGroup } from '@lobehub/ui';
 import isEqual from 'fast-deep-equal';
-import { ArrowDownUpIcon, LucideCheck } from 'lucide-react';
+import { ArrowDownUpIcon, LucideCheck, ToggleRightIcon } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { usePermission } from '@/hooks/usePermission';
 import { useAiInfraStore } from '@/store/aiInfra';
 import { aiModelSelectors } from '@/store/aiInfra/selectors';
 import { useGlobalStore } from '@/store/global';
@@ -30,11 +31,14 @@ const PAGE_SIZE = 30;
 
 const DisabledModels = memo<DisabledModelsProps>(({ activeTab, providerId }) => {
   const { t } = useTranslation('modelProvider');
+  const { allowed: canManageProvider, reason } = usePermission('manage_provider_key');
 
   const [sortType, updateSystemStatus] = useGlobalStore((s) => [
     systemStatusSelectors.disabledModelsSortType(s),
     s.updateSystemStatus,
   ]);
+  const batchToggleAiModels = useAiInfraStore((s) => s.batchToggleAiModels);
+  const [batchLoading, setBatchLoading] = useState(false);
 
   // Only render at most PAGE_SIZE items on first paint and reveal more in
   // PAGE_SIZE steps as the user scrolls.
@@ -102,6 +106,13 @@ const DisabledModels = memo<DisabledModelsProps>(({ activeTab, providerId }) => 
     return sourceDisabledModels.filter((model) => model.type === activeTab);
   }, [activeTab, sourceDisabledModels]);
 
+  // Enable-all targets every disabled model of the current tab (not just the
+  // currently rendered PAGE_SIZE window).
+  const togglableDisabledModels = useMemo(() => {
+    if (activeTab === 'all') return disabledModels;
+    return disabledModels.filter((model) => model.type === activeTab);
+  }, [activeTab, disabledModels]);
+
   // Sort models based on sort type
   const sortedDisabledModels = useMemo(() => {
     const models = [...filteredDisabledModels];
@@ -162,63 +173,99 @@ const DisabledModels = memo<DisabledModelsProps>(({ activeTab, providerId }) => 
           <Text style={{ fontSize: 12, marginTop: 8 }} type={'secondary'}>
             {t('providerModels.list.disabled')}
           </Text>
-          {sourceDisabledModels.length > 1 && (
-            <DropdownMenu
-              items={
-                [
-                  {
-                    icon: sortType === SortType.Default ? <Icon icon={LucideCheck} /> : <div />,
-                    key: 'default',
-                    label: t('providerModels.list.disabledActions.sortDefault'),
-                    onClick: () => updateSortType(SortType.Default),
-                  },
-                  {
-                    type: 'divider',
-                  },
-                  {
-                    icon:
-                      sortType === SortType.Alphabetical ? <Icon icon={LucideCheck} /> : <div />,
-                    key: 'alphabetical',
-                    label: t('providerModels.list.disabledActions.sortAlphabetical'),
-                    onClick: () => updateSortType(SortType.Alphabetical),
-                  },
-                  {
-                    icon:
-                      sortType === SortType.AlphabeticalDesc ? (
-                        <Icon icon={LucideCheck} />
-                      ) : (
-                        <div />
-                      ),
-                    key: 'alphabeticalDesc',
-                    label: t('providerModels.list.disabledActions.sortAlphabeticalDesc'),
-                    onClick: () => updateSortType(SortType.AlphabeticalDesc),
-                  },
-                  {
-                    type: 'divider',
-                  },
-                  {
-                    icon: sortType === SortType.ReleasedAt ? <Icon icon={LucideCheck} /> : <div />,
-                    key: 'releasedAt',
-                    label: t('providerModels.list.disabledActions.sortReleasedAt'),
-                    onClick: () => updateSortType(SortType.ReleasedAt),
-                  },
-                  {
-                    icon:
-                      sortType === SortType.ReleasedAtDesc ? <Icon icon={LucideCheck} /> : <div />,
-                    key: 'releasedAtDesc',
-                    label: t('providerModels.list.disabledActions.sortReleasedAtDesc'),
-                    onClick: () => updateSortType(SortType.ReleasedAtDesc),
-                  },
-                ] as ItemType[]
-              }
-            >
-              <ActionIcon
-                icon={ArrowDownUpIcon}
-                size={'small'}
-                title={t('providerModels.list.disabledActions.sort')}
-              />
-            </DropdownMenu>
-          )}
+          <TooltipGroup>
+            <Flexbox horizontal>
+              {togglableDisabledModels.length > 0 && (
+                <ActionIcon
+                  disabled={!canManageProvider}
+                  icon={ToggleRightIcon}
+                  loading={batchLoading}
+                  size={'small'}
+                  title={
+                    canManageProvider ? t('providerModels.list.disabledActions.enableAll') : reason
+                  }
+                  onClick={async () => {
+                    if (!canManageProvider) return;
+                    setBatchLoading(true);
+                    try {
+                      await batchToggleAiModels(
+                        togglableDisabledModels.map((model) => model.id),
+                        true,
+                      );
+                    } finally {
+                      setBatchLoading(false);
+                    }
+                  }}
+                />
+              )}
+              {sourceDisabledModels.length > 1 && (
+                <DropdownMenu
+                  items={
+                    [
+                      {
+                        icon: sortType === SortType.Default ? <Icon icon={LucideCheck} /> : <div />,
+                        key: 'default',
+                        label: t('providerModels.list.disabledActions.sortDefault'),
+                        onClick: () => updateSortType(SortType.Default),
+                      },
+                      {
+                        type: 'divider',
+                      },
+                      {
+                        icon:
+                          sortType === SortType.Alphabetical ? (
+                            <Icon icon={LucideCheck} />
+                          ) : (
+                            <div />
+                          ),
+                        key: 'alphabetical',
+                        label: t('providerModels.list.disabledActions.sortAlphabetical'),
+                        onClick: () => updateSortType(SortType.Alphabetical),
+                      },
+                      {
+                        icon:
+                          sortType === SortType.AlphabeticalDesc ? (
+                            <Icon icon={LucideCheck} />
+                          ) : (
+                            <div />
+                          ),
+                        key: 'alphabeticalDesc',
+                        label: t('providerModels.list.disabledActions.sortAlphabeticalDesc'),
+                        onClick: () => updateSortType(SortType.AlphabeticalDesc),
+                      },
+                      {
+                        type: 'divider',
+                      },
+                      {
+                        icon:
+                          sortType === SortType.ReleasedAt ? <Icon icon={LucideCheck} /> : <div />,
+                        key: 'releasedAt',
+                        label: t('providerModels.list.disabledActions.sortReleasedAt'),
+                        onClick: () => updateSortType(SortType.ReleasedAt),
+                      },
+                      {
+                        icon:
+                          sortType === SortType.ReleasedAtDesc ? (
+                            <Icon icon={LucideCheck} />
+                          ) : (
+                            <div />
+                          ),
+                        key: 'releasedAtDesc',
+                        label: t('providerModels.list.disabledActions.sortReleasedAtDesc'),
+                        onClick: () => updateSortType(SortType.ReleasedAtDesc),
+                      },
+                    ] as ItemType[]
+                  }
+                >
+                  <ActionIcon
+                    icon={ArrowDownUpIcon}
+                    size={'small'}
+                    title={t('providerModels.list.disabledActions.sort')}
+                  />
+                </DropdownMenu>
+              )}
+            </Flexbox>
+          </TooltipGroup>
         </Flexbox>
         <TooltipGroup>
           {displayModels.map((item) => (

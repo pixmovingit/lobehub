@@ -4213,6 +4213,54 @@ table signal_decisions {
   }
 }
 
+table system_ai_models {
+  id varchar(150) [not null]
+  "_id" uuid [pk, not null, default: `gen_random_uuid()`]
+  display_name varchar(200)
+  description text
+  organization varchar(100)
+  enabled boolean [not null, default: true]
+  provider_id varchar(64) [not null]
+  type varchar(20) [not null, default: 'chat']
+  sort integer
+  pricing jsonb
+  parameters jsonb [default: `{}`]
+  config jsonb
+  abilities jsonb [default: `{}`]
+  context_window_tokens integer
+  released_at varchar(10)
+  settings jsonb [default: `{}`]
+  accessed_at "timestamp with time zone" [not null, default: `now()`]
+  created_at "timestamp with time zone" [not null, default: `now()`]
+  updated_at "timestamp with time zone" [not null, default: `now()`]
+
+  indexes {
+    (id, provider_id) [name: 'system_ai_models_id_provider_id_unique', unique]
+    provider_id [name: 'system_ai_models_provider_id_idx']
+  }
+}
+
+table system_ai_providers {
+  id varchar(64) [pk, not null]
+  name text [not null]
+  description text
+  logo text
+  enabled boolean [not null, default: true]
+  sort integer
+  check_model text
+  fetch_on_client boolean
+  key_vaults text
+  settings jsonb [not null]
+  config jsonb [not null]
+  accessed_at "timestamp with time zone" [not null, default: `now()`]
+  created_at "timestamp with time zone" [not null, default: `now()`]
+  updated_at "timestamp with time zone" [not null, default: `now()`]
+
+  indexes {
+    enabled [name: 'system_ai_providers_enabled_idx']
+  }
+}
+
 table system_bot_providers {
   id uuid [pk, not null, default: `gen_random_uuid()`]
   platform varchar(50) [not null]
@@ -4228,6 +4276,16 @@ table system_bot_providers {
   indexes {
     platform [name: 'system_bot_providers_platform_unique', unique]
   }
+}
+
+table system_service_model_settings {
+  id text [pk, not null, default: 'default']
+  system_agent jsonb
+  default_agent jsonb
+  image jsonb
+  accessed_at "timestamp with time zone" [not null, default: `now()`]
+  created_at "timestamp with time zone" [not null, default: `now()`]
+  updated_at "timestamp with time zone" [not null, default: `now()`]
 }
 
 table briefs {

@@ -59,5 +59,22 @@ describe('AiInfraRepos', () => {
         ),
       );
     });
+
+    it('does not enable builtins for new users from server providerConfigs', async () => {
+      vi.spyOn(repo.aiProviderModel, 'getAiProviderList').mockResolvedValue([]);
+
+      const result = await repo.getAiProviderList();
+
+      expect(result.find((item) => item.id === 'openai')).toMatchObject({
+        enabled: false,
+        id: 'openai',
+        source: 'builtin',
+      });
+      expect(result.find((item) => item.id === 'anthropic')).toMatchObject({
+        enabled: false,
+        id: 'anthropic',
+        source: 'builtin',
+      });
+    });
   });
 });

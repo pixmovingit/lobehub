@@ -99,4 +99,19 @@ describe('SystemAdminService', () => {
     await db.insert(users).values({ email: 'admin@example.com', id: firstUserId });
     expect(await SystemAdminService.needsAdminSetup(db)).toBe(false);
   });
+
+  it('treats the earliest super_admin assignment as the bootstrap admin', async () => {
+    await db.insert(users).values([
+      { email: 'admin@example.com', id: firstUserId },
+      { email: 'admin2@example.com', id: secondUserId },
+    ]);
+
+    const service = new SystemAdminService(db);
+    await service.grantSuperAdmin(firstUserId);
+    await service.grantSuperAdmin(secondUserId);
+
+    expect(await service.getBootstrapAdminUserId()).toBe(firstUserId);
+    expect(await service.isBootstrapAdmin(firstUserId)).toBe(true);
+    expect(await service.isBootstrapAdmin(secondUserId)).toBe(false);
+  });
 });

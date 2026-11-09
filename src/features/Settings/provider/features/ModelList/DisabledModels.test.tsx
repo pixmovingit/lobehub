@@ -15,8 +15,19 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
+vi.mock('@/hooks/usePermission', () => ({
+  usePermission: () => ({
+    allowed: true,
+    reason: undefined,
+  }),
+}));
+
 vi.mock('@/store/aiInfra', () => ({
-  useAiInfraStore: (selector: (s: any) => unknown) => selector({ disabledModels: models }),
+  useAiInfraStore: (selector: (s: any) => unknown) =>
+    selector({
+      batchToggleAiModels: vi.fn(),
+      disabledModels: models,
+    }),
 }));
 
 vi.mock('@/store/aiInfra/selectors', () => ({
@@ -29,6 +40,18 @@ vi.mock('@/store/global', () => ({
   useGlobalStore: (selector: (s: any) => unknown) =>
     selector({ status: { disabledModelsSortType: 'default' }, updateSystemStatus: vi.fn() }),
 }));
+
+vi.mock('@lobehub/ui', async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...actual,
+    ActionIcon: ({ title, onClick, disabled }: any) => (
+      <button disabled={disabled} title={title} type="button" onClick={onClick} />
+    ),
+    DropdownMenu: ({ children }: any) => <div>{children}</div>,
+    TooltipGroup: ({ children }: any) => <>{children}</>,
+  };
+});
 
 vi.mock('./ModelItem', () => ({
   default: ({ id }: { id: string }) => <div data-testid="model-item">{id}</div>,

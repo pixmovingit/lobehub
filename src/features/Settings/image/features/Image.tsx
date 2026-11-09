@@ -1,5 +1,6 @@
 'use client';
 
+import { DEFAULT_IMAGE_CONFIG } from '@lobechat/const';
 import { type UserImageConfig } from '@lobechat/types';
 import { Flexbox, Icon, Spin, Tooltip } from '@lobehub/ui';
 import { Form, type FormGroupItem, useForm } from '@lobehub/ui/form';
@@ -16,13 +17,27 @@ import { usePermission } from '@/hooks/usePermission';
 import { useUserStore } from '@/store/user';
 import { settingsSelectors } from '@/store/user/slices/settings/selectors';
 
-const ImageSettings = memo(() => {
+export interface ImageSettingsDeploymentSource {
+  onChange: (image: UserImageConfig) => Promise<void>;
+  value?: Partial<UserImageConfig> | null;
+}
+
+interface ImageSettingsProps {
+  /** Edit deployment-wide image defaults instead of the signed-in user. */
+  deployment?: ImageSettingsDeploymentSource;
+}
+
+const ImageSettings = memo(({ deployment }: ImageSettingsProps) => {
   const { t } = useTranslation('setting');
-  const { allowed: canManageServiceModel, reason } = usePermission('manage_settings');
+  const { allowed: personalCanManage, reason } = usePermission('manage_settings');
+  const canManageServiceModel = deployment ? true : personalCanManage;
   const [isUpdating, setIsUpdating] = useState(false);
 
-  const imageSettings = useUserStore(settingsSelectors.currentImageSettings);
+  const userImageSettings = useUserStore(settingsSelectors.currentImageSettings);
   const [setSettings, isUserStateInit] = useUserStore((s) => [s.setSettings, s.isUserStateInit]);
+  const imageSettings: UserImageConfig = deployment
+    ? { ...DEFAULT_IMAGE_CONFIG, ...deployment.value }
+    : userImageSettings;
   const form = useForm<UserImageConfig>({
     initialValues: imageSettings,
     values: imageSettings,
@@ -31,14 +46,15 @@ const ImageSettings = memo(() => {
 
       setIsUpdating(true);
       try {
-        await setSettings({ image: values });
+        if (deployment) await deployment.onChange(values);
+        else await setSettings({ image: values });
       } finally {
         setIsUpdating(false);
       }
     },
   });
 
-  if (!isUserStateInit) {
+  if (!deployment && !isUserStateInit) {
     // Same group the service-model tab skeleton draws below the model cards.
     return <ImageSettingsSkeleton />;
   }
@@ -51,7 +67,7 @@ const ImageSettings = memo(() => {
           label: (
             <Flexbox horizontal align={'center'} gap={4}>
               {t('settingImage.defaultCount.label')}
-              {reason && (
+              {!deployment && reason && (
                 <Tooltip title={reason}>
                   <Icon icon={CircleHelpIcon} size={14} style={{ cursor: 'help' }} />
                 </Tooltip>

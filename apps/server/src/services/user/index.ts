@@ -2,7 +2,9 @@ import { ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
 import { type LobeChatDatabase } from '@lobechat/database';
 
 import { initNewUserForBusiness } from '@/business/server/user';
+import { SystemServiceModelSettingsModel } from '@/database/models/systemServiceModelSettings';
 import { UserModel } from '@/database/models/user';
+import type { UserSettingsItem } from '@/database/schemas';
 import { initializeServerAnalytics } from '@/libs/analytics';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { FileS3 } from '@/server/modules/S3';
@@ -25,6 +27,25 @@ export class UserService {
     this.db = db;
   }
 
+  /**
+   * Copy admin Service Model defaults into a brand-new account's personal
+   * settings. Existing users are never rewritten — only registration-time
+   * bootstrap (Better Auth `user.create.after` → `initUser`) reaches here.
+   */
+  async #seedServiceModelDefaults(userId: string) {
+    const defaults = await SystemServiceModelSettingsModel.get(this.db);
+    if (!defaults) return;
+
+    const patch: Partial<UserSettingsItem> = {
+      ...(defaults.defaultAgent ? { defaultAgent: defaults.defaultAgent } : {}),
+      ...(defaults.image ? { image: defaults.image } : {}),
+      ...(defaults.systemAgent ? { systemAgent: defaults.systemAgent } : {}),
+    };
+    if (Object.keys(patch).length === 0) return;
+
+    await new UserModel(this.db, userId).updateSetting(patch);
+  }
+
   async initUser(user: CreatedUser) {
     if (ENABLE_BUSINESS_FEATURES) {
       try {
@@ -42,6 +63,13 @@ export class UserService {
         console.error(error);
         console.error('Failed to promote bootstrap system admin');
       }
+    }
+
+    try {
+      await this.#seedServiceModelDefaults(user.id);
+    } catch (error) {
+      console.error(error);
+      console.error('Failed to seed deployment Service Model defaults for new user');
     }
 
     const analytics = await initializeServerAnalytics();

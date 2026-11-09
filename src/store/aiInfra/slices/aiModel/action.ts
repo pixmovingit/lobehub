@@ -175,7 +175,9 @@ export class AiModelActionImpl {
               vision: model.vision,
             },
           }),
-          enabled: currentEnabledState.get(model.id) ?? model.enabled ?? false,
+          // Keep a user's prior toggle; newly discovered remote models start
+          // enabled so a fresh "Fetch models" lands a usable catalog.
+          enabled: currentEnabledState.get(model.id) ?? true,
           source: 'remote',
           type: model.type ?? 'chat',
         };

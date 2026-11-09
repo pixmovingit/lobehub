@@ -81,6 +81,40 @@ describe('settings useCategory', () => {
     ]);
   });
 
+  it('puts Users under Admin for admins, between Runtime and System', () => {
+    useUserStore.setState({
+      userState: { ...initialUserStoreState.userState, isAdmin: true },
+    });
+
+    const { result } = renderHook(() => useCategory(), {
+      wrapper: createWrapper(true, true),
+    });
+
+    expect(result.current.map((group) => group.key)).toEqual([
+      SettingsGroupKey.Account,
+      SettingsGroupKey.Subscription,
+      SettingsGroupKey.Agent,
+      SettingsGroupKey.Connection,
+      SettingsGroupKey.Resource,
+      SettingsGroupKey.Admin,
+      SettingsGroupKey.System,
+    ]);
+    expect(groupKeys(SettingsGroupKey.Admin, true)).toEqual([
+      SettingsTabs.AdminUsers,
+      SettingsTabs.AdminDefaultSettings,
+    ]);
+    expect(groupKeys(SettingsGroupKey.System, true)).not.toContain(SettingsTabs.AdminUsers);
+  });
+
+  it('hides the Admin group for non-admins', () => {
+    expect(getItemKeys()).not.toContain(SettingsTabs.AdminUsers);
+    expect(
+      renderHook(() => useCategory(), { wrapper: createWrapper(true) }).result.current.some(
+        (group) => group.key === SettingsGroupKey.Admin,
+      ),
+    ).toBe(false);
+  });
+
   it('keeps preferences, notifications and stats in the Account group', () => {
     expect(groupKeys(SettingsGroupKey.Account, true)).toEqual([
       SettingsTabs.Profile,

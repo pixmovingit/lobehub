@@ -1,6 +1,16 @@
 'use client';
 
-import { Button, Flexbox, Icon, Input, Switch, Text, TextArea, toast } from '@lobehub/ui';
+import {
+  Button,
+  confirmModal,
+  Flexbox,
+  Icon,
+  Input,
+  Switch,
+  Text,
+  TextArea,
+  toast,
+} from '@lobehub/ui';
 import { Form, useForm } from '@lobehub/ui/form';
 import { cssVar } from '@lobehub/ui/stylex/cssVar.stylex';
 import * as stylex from '@stylexjs/stylex';
@@ -11,7 +21,15 @@ import useSWR from 'swr';
 
 import { adminService } from '@/services/admin';
 import { useUserStore } from '@/store/user';
+import { userProfileSelectors } from '@/store/user/slices/auth/selectors';
 import { sx } from '@/styles/sx';
+
+import { canDeleteAdminUser } from './canDeleteAdminUser';
+import {
+  InvalidAdminUserJsonError,
+  SelfBanNotAllowedError,
+  submitAdminUserDetail,
+} from './submitAdminUserDetail';
 
 const styles = stylex.create({
   list: {
@@ -87,11 +105,16 @@ interface AdminUserFormValues {
 const AdminUsers = memo(() => {
   const { t } = useTranslation('setting');
   const isAdmin = useUserStore((s) => Boolean(s.userState?.isAdmin));
+  const currentUserId = useUserStore(userProfileSelectors.userId);
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { data, isLoading, mutate } = useSWR(isAdmin ? ['admin-users', query] : null, () =>
     adminService.listUsers({ limit: 100, query: query || undefined }),
+  );
+
+  const actorIsBootstrapAdmin = Boolean(
+    currentUserId && data?.bootstrapAdminUserId === currentUserId,
   );
 
   if (!isAdmin) {
@@ -135,7 +158,12 @@ const AdminUsers = memo(() => {
                 </Text>
               </div>
               <div {...sx(styles.badges)}>
-                {user.isSuperAdmin && (
+                {user.isBootstrapAdmin && (
+                  <span {...sx(styles.badge, styles.badgeAdmin)}>
+                    <Icon icon={Shield} size={12} /> {t('adminUsers.badge.bootstrap')}
+                  </span>
+                )}
+                {user.isSuperAdmin && !user.isBootstrapAdmin && (
                   <span {...sx(styles.badge, styles.badgeAdmin)}>
                     <Icon icon={Shield} size={12} /> {t('adminUsers.badge.admin')}
                   </span>
@@ -155,8 +183,13 @@ const AdminUsers = memo(() => {
         <div {...sx(styles.detail)}>
           <AdminUserDetail
             key={selectedId}
+            actorIsBootstrapAdmin={actorIsBootstrapAdmin}
             userId={selectedId}
             onClose={() => setSelectedId(null)}
+            onDeleted={() => {
+              setSelectedId(null);
+              void mutate();
+            }}
             onSaved={() => {
               void mutate();
             }}
@@ -168,123 +201,183 @@ const AdminUsers = memo(() => {
 });
 
 interface AdminUserDetailProps {
+  actorIsBootstrapAdmin: boolean;
   onClose: () => void;
+  onDeleted: () => void;
   onSaved: () => void;
   userId: string;
 }
 
-const AdminUserDetail = memo(({ onClose, onSaved, userId }: AdminUserDetailProps) => {
-  const { t } = useTranslation('setting');
-  const [saving, setSaving] = useState(false);
+const AdminUserDetail = memo(
+  ({ actorIsBootstrapAdmin, onClose, onDeleted, onSaved, userId }: AdminUserDetailProps) => {
+    const { t } = useTranslation('setting');
+    const [saving, setSaving] = useState(false);
 
-  const { data, error, isLoading } = useSWR(
-    ['admin-user-detail', userId],
-    async () => {
-      const [user, settingsPayload] = await Promise.all([
-        adminService.getUser(userId),
-        adminService.getUserSettings(userId),
-      ]);
-      return { settingsPayload, user };
-    },
-    {
-      onError: (err) => {
-        console.error(err);
-        toast.error(t('adminUsers.loadFailed'));
-        onClose();
+    const { data, error, isLoading } = useSWR(
+      ['admin-user-detail', userId],
+      async () => {
+        const [user, settingsPayload] = await Promise.all([
+          adminService.getUser(userId),
+          adminService.getUserSettings(userId),
+        ]);
+        return { settingsPayload, user };
       },
-    },
-  );
+      {
+        onError: (err) => {
+          console.error(err);
+          toast.error(t('adminUsers.loadFailed'));
+          onClose();
+        },
+      },
+    );
 
-  const initialValues = useMemo<AdminUserFormValues | null>(() => {
-    if (!data) return null;
-    return {
-      banReason: data.user.banReason || '',
-      banned: Boolean(data.user.banned),
-      fullName: data.user.fullName || '',
-      isSuperAdmin: data.user.isSuperAdmin,
-      preferenceJson: JSON.stringify(data.settingsPayload.preference ?? {}, null, 2),
-      settingsJson: JSON.stringify(data.settingsPayload.settings ?? {}, null, 2),
-      username: data.user.username || '',
-    };
-  }, [data]);
+    const initialValues = useMemo<AdminUserFormValues | null>(() => {
+      if (!data) return null;
+      return {
+        banReason: data.user.banReason || '',
+        banned: Boolean(data.user.banned),
+        fullName: data.user.fullName || '',
+        isSuperAdmin: data.user.isSuperAdmin,
+        preferenceJson: JSON.stringify(data.settingsPayload.preference ?? {}, null, 2),
+        settingsJson: JSON.stringify(data.settingsPayload.settings ?? {}, null, 2),
+        username: data.user.username || '',
+      };
+    }, [data]);
 
-  if (error || isLoading || !initialValues) {
-    return <Text type="secondary">{t('adminUsers.loading')}</Text>;
-  }
+    if (error || isLoading || !initialValues || !data) {
+      return <Text type="secondary">{t('adminUsers.loading')}</Text>;
+    }
 
-  return (
-    <AdminUserDetailForm
-      initialValues={initialValues}
-      saving={saving}
-      setSaving={setSaving}
-      userId={userId}
-      onClose={onClose}
-      onSaved={onSaved}
-    />
-  );
-});
+    return (
+      <AdminUserDetailForm
+        actorIsBootstrapAdmin={actorIsBootstrapAdmin}
+        initialValues={initialValues}
+        saving={saving}
+        setSaving={setSaving}
+        targetIsBootstrapAdmin={data.user.isBootstrapAdmin}
+        targetIsSuperAdmin={data.user.isSuperAdmin}
+        userId={userId}
+        onClose={onClose}
+        onDeleted={onDeleted}
+        onSaved={onSaved}
+      />
+    );
+  },
+);
 
 interface AdminUserDetailFormProps {
+  actorIsBootstrapAdmin: boolean;
   initialValues: AdminUserFormValues;
   onClose: () => void;
+  onDeleted: () => void;
   onSaved: () => void;
   saving: boolean;
   setSaving: (value: boolean) => void;
+  targetIsBootstrapAdmin: boolean;
+  targetIsSuperAdmin: boolean;
   userId: string;
 }
 
+const resolveDeleteErrorMessage = (error: unknown, t: (key: string) => string) => {
+  if (!(error instanceof Error)) return t('adminUsers.deleteFailed');
+  if (/Cannot delete your own account/i.test(error.message)) return t('adminUsers.deleteSelfError');
+  if (/Only the initial administrator can delete another system administrator/i.test(error.message)) {
+    return t('adminUsers.deleteAdminForbidden');
+  }
+  if (/agent transfer is still pending/i.test(error.message)) {
+    return t('adminUsers.deleteTransferPending');
+  }
+  return t('adminUsers.deleteFailed');
+};
+
 const AdminUserDetailForm = memo(
-  ({ initialValues, onClose, onSaved, saving, setSaving, userId }: AdminUserDetailFormProps) => {
+  ({
+    actorIsBootstrapAdmin,
+    initialValues,
+    onClose,
+    onDeleted,
+    onSaved,
+    saving,
+    setSaving,
+    targetIsBootstrapAdmin,
+    targetIsSuperAdmin,
+    userId,
+  }: AdminUserDetailFormProps) => {
     const { t } = useTranslation('setting');
-    const form = useForm<AdminUserFormValues>({
-      initialValues,
-      values: initialValues,
+    const currentUserId = useUserStore(userProfileSelectors.userId);
+    const isSelf = currentUserId === userId;
+    const showDelete = canDeleteAdminUser({
+      actorIsBootstrapAdmin,
+      actorUserId: currentUserId,
+      targetIsSuperAdmin,
+      targetUserId: userId,
     });
 
-    const handleSave = form.handleSubmit(async (values) => {
+    const handleFinish = async (values: AdminUserFormValues) => {
       setSaving(true);
       try {
-        let settings: Record<string, unknown>;
-        let preference: Record<string, unknown>;
-        try {
-          settings = JSON.parse(values.settingsJson) as Record<string, unknown>;
-          preference = JSON.parse(values.preferenceJson) as Record<string, unknown>;
-        } catch {
-          toast.error(t('adminUsers.invalidJson'));
-          setSaving(false);
-          return;
-        }
-
-        await adminService.updateUser({
-          banReason: values.banned ? values.banReason || null : null,
-          banned: values.banned,
-          fullName: values.fullName || null,
-          userId,
-          username: values.username || null,
-        });
-        await adminService.setSuperAdmin(userId, values.isSuperAdmin);
-        await adminService.updateUserSettings({
-          preference: preference as never,
-          settings: settings as never,
-          userId,
-        });
+        await submitAdminUserDetail(userId, values, currentUserId);
         toast.success(t('adminUsers.saveSuccess'));
         onSaved();
       } catch (error) {
         console.error(error);
+        if (error instanceof InvalidAdminUserJsonError) {
+          toast.error(t('adminUsers.invalidJson'));
+          return;
+        }
+        if (error instanceof SelfBanNotAllowedError) {
+          toast.error(t('adminUsers.selfBanError'));
+          return;
+        }
         const message =
           error instanceof Error && /last system administrator/i.test(error.message)
             ? t('adminUsers.lastAdminError')
-            : t('adminUsers.saveFailed');
+            : error instanceof Error && /Cannot ban your own account/i.test(error.message)
+              ? t('adminUsers.selfBanError')
+              : t('adminUsers.saveFailed');
         toast.error(message);
       } finally {
         setSaving(false);
       }
+    };
+
+    const handleDelete = () => {
+      confirmModal({
+        cancelText: t('adminUsers.deleteConfirm.cancel'),
+        content: t('adminUsers.deleteConfirm.content'),
+        okButtonProps: { danger: true },
+        okText: t('adminUsers.deleteConfirm.ok'),
+        onOk: async () => {
+          try {
+            await adminService.deleteUser(userId);
+            toast.success(t('adminUsers.deleteSuccess'));
+            onDeleted();
+          } catch (error) {
+            console.error(error);
+            toast.error(resolveDeleteErrorMessage(error, t));
+            throw error;
+          }
+        },
+        title: t('adminUsers.deleteConfirm.title'),
+      });
+    };
+
+    const form = useForm<AdminUserFormValues>({
+      initialValues,
+      onSubmit: handleFinish,
+      values: initialValues,
     });
 
     return (
       <Flexbox gap={16}>
-        <Text strong>{t('adminUsers.detailTitle')}</Text>
+        <Flexbox horizontal align="center" gap={8}>
+          <Text strong>{t('adminUsers.detailTitle')}</Text>
+          {targetIsBootstrapAdmin && (
+            <span {...sx(styles.badge, styles.badgeAdmin)}>
+              <Icon icon={Shield} size={12} /> {t('adminUsers.badge.bootstrap')}
+            </span>
+          )}
+        </Flexbox>
         <Form form={form} gap={12} layout="vertical">
           <Form.Field label={t('adminUsers.fields.fullName')} name="fullName">
             <Input />
@@ -292,18 +385,23 @@ const AdminUserDetailForm = memo(
           <Form.Field label={t('adminUsers.fields.username')} name="username">
             <Input />
           </Form.Field>
-          <Form.Field label={t('adminUsers.fields.banned')} name="banned" valuePropName="checked">
-            <Switch />
+          <Form.Field
+            extra={isSelf ? t('adminUsers.selfBanHint') : undefined}
+            label={t('adminUsers.fields.banned')}
+            name="banned"
+            valuePropName="checked"
+          >
+            <Switch disabled={isSelf} />
           </Form.Field>
           <Form.Field label={t('adminUsers.fields.banReason')} name="banReason">
-            <Input />
+            <Input disabled={isSelf} />
           </Form.Field>
           <Form.Field
             label={t('adminUsers.fields.isSuperAdmin')}
             name="isSuperAdmin"
             valuePropName="checked"
           >
-            <Switch />
+            <Switch disabled={targetIsBootstrapAdmin} />
           </Form.Field>
           <Form.Field label={t('adminUsers.fields.settingsJson')} name="settingsJson">
             <TextArea autoSize={{ maxRows: 18, minRows: 8 }} />
@@ -312,11 +410,20 @@ const AdminUserDetailForm = memo(
             <TextArea autoSize={{ maxRows: 12, minRows: 4 }} />
           </Form.Field>
         </Form>
-        <Flexbox horizontal gap={8} justify="flex-end">
-          <Button onClick={onClose}>{t('adminUsers.cancel')}</Button>
-          <Button loading={saving} type="primary" onClick={() => void handleSave()}>
-            {t('adminUsers.save')}
-          </Button>
+        <Flexbox horizontal gap={8} justify="space-between">
+          {showDelete ? (
+            <Button danger disabled={saving} onClick={handleDelete}>
+              {t('adminUsers.delete')}
+            </Button>
+          ) : (
+            <span />
+          )}
+          <Flexbox horizontal gap={8}>
+            <Button onClick={onClose}>{t('adminUsers.cancel')}</Button>
+            <Button loading={saving} type="primary" onClick={() => void form.submit()}>
+              {t('adminUsers.save')}
+            </Button>
+          </Flexbox>
         </Flexbox>
       </Flexbox>
     );

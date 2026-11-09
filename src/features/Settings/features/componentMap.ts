@@ -7,6 +7,9 @@ import { SettingsTabs } from '@/store/global/initialState';
 const loading = (_debugId: string) => () => createElement(SettingsChunkSkeleton);
 
 export const componentMap = {
+  [SettingsTabs.AdminDefaultSettings]: dynamic(() => import('../admin-default-settings'), {
+    loading: loading('Settings > AdminDefaultSettings'),
+  }),
   [SettingsTabs.AdminUsers]: dynamic(() => import('../admin-users'), {
     loading: loading('Settings > AdminUsers'),
   }),

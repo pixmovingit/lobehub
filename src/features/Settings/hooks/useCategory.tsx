@@ -27,6 +27,7 @@ import {
   MonitorSmartphoneIcon,
   PaletteIcon,
   PlugIcon,
+  Settings2,
   Sparkles,
   TagIcon,
   TerminalSquare,
@@ -52,6 +53,7 @@ import { userGeneralSettingsSelectors } from '@/store/user/slices/settings/selec
 
 export enum SettingsGroupKey {
   Account = 'account',
+  Admin = 'admin',
   Agent = 'agent',
   Connection = 'connection',
   Resource = 'resource',
@@ -262,14 +264,30 @@ export const useCategory = () => {
       title: t('group.resource'),
     });
 
+    // Admin group — cloud/self-host operators only; keep out of System so
+    // non-admins never see an empty accordion section.
+    if (isAdmin) {
+      groups.push({
+        items: [
+          {
+            icon: UserRoundCog,
+            key: SettingsTabs.AdminUsers,
+            label: t('tab.adminUsers'),
+          },
+          {
+            icon: Settings2,
+            key: SettingsTabs.AdminDefaultSettings,
+            label: t('tab.adminDefaultSettings'),
+          },
+        ],
+        key: SettingsGroupKey.Admin,
+        title: t('group.admin'),
+      });
+    }
+
     // System & developer group — low-frequency, so the sidebar starts it
     // collapsed. API Key has a single home whichever flag turned it on.
     const systemItems: CategoryItem[] = [
-      isAdmin && {
-        icon: UserRoundCog,
-        key: SettingsTabs.AdminUsers,
-        label: t('tab.adminUsers'),
-      },
       {
         icon: Database,
         key: SettingsTabs.Storage,

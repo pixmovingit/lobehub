@@ -1,6 +1,11 @@
 'use client';
 
-import { SERVICE_MODEL_TIER_SLOTS } from '@lobechat/const';
+import {
+  DEFAULT_AGENT_CONFIG,
+  DEFAULT_SYSTEM_AGENT_CONFIG,
+  SERVICE_MODEL_TIER_SLOTS,
+} from '@lobechat/const';
+import type { UserSettings } from '@lobechat/types';
 import { Button, Flexbox, Icon, InputNumber, Switch, TextArea } from '@lobehub/ui';
 import { Form, type FormGroupItem, useForm } from '@lobehub/ui/form';
 import * as stylex from '@stylexjs/stylex';
@@ -9,6 +14,7 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router';
+import type { PartialDeep } from 'type-fest';
 
 import AsyncError from '@/components/AsyncError';
 import AutoSaveHint from '@/components/Editor/AutoSaveHint';
@@ -92,7 +98,24 @@ const MEMORY_CONTEXT_LIMIT_SLOTS = new Set<RowKey>([
 const PERSONAL_SLOTS = new Set<UserServiceModelConfigKey>(PERSONAL_SYSTEM_AGENT_KEYS);
 const NO_SLOTS = new Set<UserServiceModelConfigKey>();
 
+type ServiceModelColumns = Pick<PartialDeep<UserSettings>, 'defaultAgent' | 'systemAgent'>;
+
+export interface ServiceModelDeploymentSource {
+  defaultAgent?: UserSettings['defaultAgent'];
+  /**
+   * Persist deployment-wide defaults. Columns are replaced wholesale the same
+   * way personal `replaceServiceModelSettings` does.
+   */
+  onReplace: (columns: ServiceModelColumns) => Promise<void>;
+  systemAgent?: StoredSystemAgent;
+}
+
 interface ServiceModelFormProps {
+  /**
+   * Edit deployment-wide defaults (admin Default Settings) instead of the
+   * signed-in user's personal overrides. Follows product code defaults.
+   */
+  deployment?: ServiceModelDeploymentSource;
   /**
    * Drop the personal chat-assist rows (follow-up, input completion). The
    * workspace surface edits them on its own Chat Preferences tab instead.
@@ -100,19 +123,24 @@ interface ServiceModelFormProps {
   hidePersonalPreferences?: boolean;
 }
 
-const ServiceModelForm = ({ hidePersonalPreferences }: ServiceModelFormProps) => {
+const ServiceModelForm = ({
+  deployment,
+  hidePersonalPreferences = Boolean(deployment),
+}: ServiceModelFormProps) => {
   const { t } = useTranslation('setting');
   const enableChannels = useServerConfigStore(serverConfigSelectors.enableChannels);
-  const { allowed: canManage, reason } = usePermission('manage_settings');
-  const [storedSystemAgent, storedDefaultAgent, defaults, defaultAgentDefaults] = useUserStore(
-    (s) => [
-      s.settings.systemAgent as StoredSystemAgent | undefined,
-      s.settings.defaultAgent,
-      s.defaultSettings.systemAgent,
-      s.defaultSettings.defaultAgent?.config,
-    ],
-    isEqual,
-  );
+  const { allowed: personalCanManage, reason } = usePermission('manage_settings');
+  const canManage = deployment ? true : personalCanManage;
+  const [userStoredSystemAgent, userStoredDefaultAgent, userDefaults, userDefaultAgentDefaults] =
+    useUserStore(
+      (s) => [
+        s.settings.systemAgent as StoredSystemAgent | undefined,
+        s.settings.defaultAgent,
+        s.defaultSettings.systemAgent,
+        s.defaultSettings.defaultAgent?.config,
+      ],
+      isEqual,
+    );
   const [replaceServiceModelSettings, isUserStateInit, isUserStateInitError, refreshUserState] =
     useUserStore((s) => [
       s.replaceServiceModelSettings,
@@ -120,6 +148,12 @@ const ServiceModelForm = ({ hidePersonalPreferences }: ServiceModelFormProps) =>
       s.isUserStateInitError,
       s.refreshUserState,
     ]);
+
+  const storedSystemAgent = deployment ? deployment.systemAgent : userStoredSystemAgent;
+  const storedDefaultAgent = deployment ? deployment.defaultAgent : userStoredDefaultAgent;
+  const defaults = deployment ? DEFAULT_SYSTEM_AGENT_CONFIG : userDefaults;
+  const defaultAgentDefaults = deployment ? DEFAULT_AGENT_CONFIG : userDefaultAgentDefaults;
+
   // A settings-search deep link to 「高级」 lands on every tier's list opened.
   const { hash } = useLocation();
   const [expanded, setExpanded] = useState<ReadonlySet<ServiceModelTier>>(
@@ -129,7 +163,7 @@ const ServiceModelForm = ({ hidePersonalPreferences }: ServiceModelFormProps) =>
   const [savingSection, setSavingSection] = useState<Section>();
   const form = useForm();
 
-  if (!isUserStateInit) {
+  if (!deployment && !isUserStateInit) {
     // A failed user-state init must show error + Retry, not a permanent skeleton
     if (isUserStateInitError)
       return (
@@ -168,9 +202,11 @@ const ServiceModelForm = ({ hidePersonalPreferences }: ServiceModelFormProps) =>
   };
 
   /** Saves and remembers which card changed, so only that card shows the save hint. */
-  const write = (section: Section, columns: Parameters<typeof replaceServiceModelSettings>[0]) => {
+  const write = (section: Section, columns: ServiceModelColumns) => {
     setSavingSection(section);
-    return save(() => replaceServiceModelSettings(columns));
+    return save(() =>
+      deployment ? deployment.onReplace(columns) : replaceServiceModelSettings(columns),
+    );
   };
 
   const writeSlot = (row: RowKey, choice: SlotChoice) => {
@@ -200,7 +236,7 @@ const ServiceModelForm = ({ hidePersonalPreferences }: ServiceModelFormProps) =>
   /** 「全部恢复」 for one tier: its pinned tasks follow the tier again; disabled ones stay off. */
   const restoreTier = (section: ServiceModelTier, rows: RowKey[]) => {
     const slots = rows.filter((row): row is DisplaySlot => row !== DEFAULT_AGENT_ROW);
-    const columns: Parameters<typeof replaceServiceModelSettings>[0] = {
+    const columns: ServiceModelColumns = {
       systemAgent: restoreAllSlots(storedSystemAgent, defaults, slots, { skipSlots }),
     };
     if (pinnedDefaultAgent && rows.includes(DEFAULT_AGENT_ROW)) {
@@ -389,7 +425,8 @@ const ServiceModelForm = ({ hidePersonalPreferences }: ServiceModelFormProps) =>
     saveStatus === 'idle' || savingSection !== section ? undefined : (
       <AutoSaveHint lastUpdatedTime={lastSavedAt} saveStatus={saveStatus} onRetry={retry} />
     );
-  const withReason = (desc: string) => (!canManage && reason ? `${desc} ${reason}` : desc);
+  const withReason = (desc: string) =>
+    !deployment && !canManage && reason ? `${desc} ${reason}` : desc;
 
   // One settings group per model kind, like 生图 below: each tier is its own
   // card with its picker on top and the tasks that follow it in a lighter

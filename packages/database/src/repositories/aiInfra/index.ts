@@ -22,6 +22,7 @@ import { merge, mergeArrayById } from '@/utils/merge';
 
 import { AiModelModel } from '../../models/aiModel';
 import { AiProviderModel } from '../../models/aiProvider';
+import { SystemAiProviderModel } from '../../models/systemAiProvider';
 import type { LobeChatDatabase } from '../../type';
 
 type DecryptUserKeyVaults = (encryptKeyVaultsStr: string | null) => Promise<any>;
@@ -95,22 +96,53 @@ export class AiInfraRepos {
    * Calculate the final providerList based on the known providerConfig
    */
   getAiProviderList = async () => {
-    const userProviders = await this.aiProviderModel.getAiProviderList();
+    const [userProviders, systemProviders] = await Promise.all([
+      this.aiProviderModel.getAiProviderList(),
+      SystemAiProviderModel.listProviderListItems(this.db),
+    ]);
 
     // 1. First create a mapping based on DEFAULT_MODEL_PROVIDER_LIST id order
     const orderMap = new Map(DEFAULT_MODEL_PROVIDER_LIST.map((item, index) => [item.id, index]));
 
+    // Builtin catalog rows start disabled. Server `providerConfigs.enabled`
+    // (ENABLED_* / API-key presence) means the provider is *available*, not
+    // that every new user should see it as turned on. Personal enable comes
+    // from userProviders below; deployment-wide defaults come from the admin
+    // system catalog merge.
     const builtinProviders = DEFAULT_MODEL_PROVIDER_LIST.map((item) => ({
       description: item.description,
-      enabled:
-        userProviders.some((provider) => provider.id === item.id && provider.enabled) ||
-        this.providerConfigs[item.id]?.enabled,
+      enabled: false,
       id: item.id,
       name: item.name,
       source: 'builtin',
     })) as AiProviderListItem[];
 
-    const mergedProviders = mergeArrayById(builtinProviders, userProviders);
+    // Only publish *enabled* deployment defaults into every user's catalog.
+    // Disabled admin defaults stay invisible until turned on; a personal user
+    // row can still surface the same id via the userProviders merge below.
+    // System defaults sit between builtin catalog and per-user overrides so a
+    // user toggle / private key always wins over the deployment default.
+    const enabledSystemProviders = systemProviders.filter((item) => item.enabled);
+    const systemIdentityById = new Map(
+      enabledSystemProviders.map((item) => [
+        item.id,
+        {
+          description: item.description,
+          logo: item.logo,
+          name: item.name,
+        },
+      ]),
+    );
+    const mergedProviders = mergeArrayById(
+      mergeArrayById(builtinProviders, enabledSystemProviders),
+      userProviders,
+    ).map((item) => {
+      // Admin owns the public identity of a deployment default. A personal row
+      // may freeze an older name after the user toggled enable / saved keys —
+      // always re-apply the live system name/description/logo on read.
+      const identity = systemIdentityById.get(item.id);
+      return identity ? { ...item, ...identity } : item;
+    });
 
     // 3. Sort based on orderMap
     return mergedProviders.sort((a, b) => {
@@ -140,17 +172,24 @@ export class AiInfraRepos {
    * used in the chat page. to show the enabled models
    */
   getEnabledModels = async (filterEnabled: boolean = true) => {
-    const [providers, allModels] = await Promise.all([
+    const [providers, allModels, systemModels] = await Promise.all([
       this.getAiProviderList(),
       this.aiModelModel.getAllModels(),
+      SystemAiProviderModel.listAllModels(this.db),
     ]);
     const enabledProviders = providers.filter((item) => (filterEnabled ? item.enabled : true));
 
-    const builtinModelList = await pMap(
+    const catalogModelList = await pMap(
       enabledProviders,
       async (provider) => {
-        const aiModels = await this.fetchBuiltinModels(provider.id);
-        return (aiModels || [])
+        const builtinModelsForProvider = await this.fetchBuiltinModels(provider.id);
+        const systemModelsForProvider = systemModels.filter((m) => m.providerId === provider.id);
+        const catalogModels = mergeArrayById(
+          builtinModelsForProvider || [],
+          systemModelsForProvider,
+        ) as (EnabledAiModel & { enabled?: boolean | null })[];
+
+        return catalogModels
           .map<EnabledAiModel & { enabled?: boolean | null }>((item) => {
             const user = allModels.find((m) => m.id === item.id && m.providerId === provider.id);
 
@@ -192,23 +231,23 @@ export class AiInfraRepos {
       { concurrency: 10 },
     );
 
-    const builtinModels = builtinModelList.flat();
-    const builtinModelKeys = new Set(builtinModels.map((item) => `${item.providerId}:${item.id}`));
+    const catalogModels = catalogModelList.flat();
+    const catalogModelKeys = new Set(catalogModels.map((item) => `${item.providerId}:${item.id}`));
 
     const enabledProviderIds = new Set(enabledProviders.map((item) => item.id));
     // User database models, check search settings
-    // Exclude models already handled in builtinModelList to avoid duplicates
+    // Exclude models already handled in catalogModelList to avoid duplicates
     const appendedUserModels = allModels
       .filter((item) => {
         if (item.providerId === BRANDING_PROVIDER) return false;
-        if (builtinModelKeys.has(`${item.providerId}:${item.id}`)) return false;
+        if (catalogModelKeys.has(`${item.providerId}:${item.id}`)) return false;
         return filterEnabled ? enabledProviderIds.has(item.providerId) && item.enabled : true;
       })
       .map((item) =>
         injectSearchSettings(item.providerId, { ...item, type: normalizeAiModelType(item.type) }),
       );
 
-    return [...builtinModels, ...appendedUserModels].sort(
+    return [...catalogModels, ...appendedUserModels].sort(
       (a, b) => (a?.sort ?? Infinity) - (b?.sort ?? Infinity),
     ) as EnabledAiModel[];
   };
@@ -216,14 +255,27 @@ export class AiInfraRepos {
   getAiProviderRuntimeState = async (
     decryptor?: DecryptUserKeyVaults,
   ): Promise<AiProviderRuntimeState> => {
-    const [result, enabledAiProviders, allModels] = await Promise.all([
+    const [userRuntime, systemRuntime, enabledAiProviders, allModels] = await Promise.all([
       this.aiProviderModel.getAiProviderRuntimeConfig(decryptor),
+      SystemAiProviderModel.getRuntimeConfig(this.db, decryptor),
       this.getUserEnabledProviderList(),
       this.getEnabledModels(false),
     ]);
 
-    const runtimeConfig = result;
-    Object.entries(result).forEach(([key, value]) => {
+    // Only enabled system providers contribute deployment-wide keyVaults /
+    // settings. User rows still override (and can introduce ids the admin
+    // catalog currently has disabled).
+    const enabledSystemIds = new Set(enabledAiProviders.map((item) => item.id));
+    const mergedRuntime: Record<string, (typeof systemRuntime)[string]> = {};
+    for (const [key, value] of Object.entries(systemRuntime)) {
+      if (enabledSystemIds.has(key)) mergedRuntime[key] = value;
+    }
+    for (const [key, value] of Object.entries(userRuntime)) {
+      mergedRuntime[key] = merge(mergedRuntime[key] || {}, value);
+    }
+
+    const runtimeConfig = { ...mergedRuntime };
+    Object.entries(mergedRuntime).forEach(([key, value]) => {
       runtimeConfig[key] = merge(this.providerConfigs[key] || {}, value);
     });
     const enabledAiModels = allModels.filter((model) => model.enabled);
@@ -357,12 +409,18 @@ export class AiInfraRepos {
       type?: string;
     },
   ) => {
-    const aiModels = await this.aiModelModel.getModelListByProviderId(providerId);
+    const [aiModels, systemModels] = await Promise.all([
+      this.aiModelModel.getModelListByProviderId(providerId),
+      SystemAiProviderModel.listModelsByProviderId(this.db, providerId),
+    ]);
 
     const defaultModels: AiProviderModelListItem[] =
       (await this.fetchBuiltinModels(providerId)) || [];
     // Not modifying search settings here doesn't affect usage, but done for data consistency on get
-    let mergedModel = mergeArrayById(defaultModels, aiModels) as AiProviderModelListItem[];
+    let mergedModel = mergeArrayById(
+      mergeArrayById(defaultModels, systemModels),
+      aiModels,
+    ) as AiProviderModelListItem[];
 
     // Model type (chat/video/image/embedding/tts/stt) should always come from builtin config,
     // because remote-fetched models from provider API (e.g. OpenAI /v1/models) don't return
@@ -420,9 +478,35 @@ export class AiInfraRepos {
    * use in the `/settings/provider/[id]` page
    */
   getAiProviderDetail = async (id: string, decryptor?: DecryptUserKeyVaults) => {
-    const config = await this.aiProviderModel.getAiProviderById(id, decryptor);
+    const [config, systemProvider, systemRuntime] = await Promise.all([
+      this.aiProviderModel.getAiProviderById(id, decryptor),
+      SystemAiProviderModel.findById(this.db, id),
+      SystemAiProviderModel.getRuntimeConfig(this.db, decryptor),
+    ]);
 
-    return merge(this.providerConfigs[id] || {}, config) as AiProviderDetailItem;
+    if (!systemProvider) {
+      return merge(this.providerConfigs[id] || {}, config) as AiProviderDetailItem;
+    }
+
+    // Layer: server providerConfigs < system default < personal override.
+    // Identity fields (name / description / logo / settings base) stay owned
+    // by the admin catalog so renaming a default actually syncs to every user.
+    const { keyVaults: _ignored, ...systemRest } = systemProvider;
+    const withSystem = merge(this.providerConfigs[id] || {}, {
+      ...systemRest,
+      keyVaults: systemRuntime[id]?.keyVaults ?? {},
+      source: 'custom',
+    });
+    const merged = merge(withSystem, config || {}) as AiProviderDetailItem;
+
+    return {
+      ...merged,
+      description: systemProvider.description,
+      logo: systemProvider.logo,
+      name: systemProvider.name,
+      settings: merge(systemProvider.settings || {}, config?.settings || {}),
+      source: 'custom',
+    };
   };
 
   /**

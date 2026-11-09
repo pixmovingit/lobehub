@@ -40,7 +40,9 @@ export const aiProviderListResource = defineReplica<Record<string, never>, AiPro
   key: () => AI_PROVIDER_LIST_KEY,
   name: 'aiProviderList',
   storage: 'indexedDB',
-  version: 1,
+  // v2: deployment-wide system defaults are merged into the list; bump so
+  // clients drop pre-merge IndexedDB snapshots that omit those providers.
+  version: 2,
 });
 
 /**

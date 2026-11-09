@@ -319,13 +319,42 @@ describe('AiModelAction', () => {
           imageOutput: true,
         },
         displayName: 'Remote Model 2',
-        enabled: false,
+        enabled: true,
         id: 'remote-2',
         source: 'remote',
         type: 'image',
       });
       expect(refreshSpy).toHaveBeenCalledTimes(1);
       expect(toast.warning).not.toHaveBeenCalled();
+    });
+
+    it('defaults newly fetched models to enabled', async () => {
+      const mockRemoteModels = [
+        { displayName: 'Brand New', id: 'brand-new', type: 'chat' },
+        { displayName: 'Also New', enabled: false, id: 'also-new', type: 'chat' },
+      ];
+
+      const { result } = renderHook(() => useStore());
+      const batchUpdateSpy = vi
+        .spyOn(aiModelService, 'batchUpdateAiModels')
+        .mockResolvedValue(undefined as any);
+
+      vi.resetModules();
+      vi.doMock('@/services/models', () => ({
+        modelsService: {
+          getModels: vi.fn().mockResolvedValue(mockRemoteModels),
+        },
+      }));
+
+      await act(async () => {
+        await result.current.fetchRemoteModelList('test-provider');
+      });
+
+      const batchUpdateArg = batchUpdateSpy.mock.calls[0][1];
+      expect(batchUpdateArg).toEqual([
+        expect.objectContaining({ enabled: true, id: 'brand-new' }),
+        expect.objectContaining({ enabled: true, id: 'also-new' }),
+      ]);
     });
 
     it('should deduplicate remote models and warn after a successful update', async () => {

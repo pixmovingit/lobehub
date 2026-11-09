@@ -71,7 +71,7 @@ afterEach(() => {
 });
 
 describe('OAuth Apps settings page', () => {
-  it('returns not found when the Labs preference is disabled', () => {
+  it('returns not found when neither admin nor Labs unlocks the page', () => {
     useUserStore.setState({ isUserStateInit: true });
 
     render(<Page />);
@@ -87,6 +87,18 @@ describe('OAuth Apps settings page', () => {
         ...initialUserStoreState.preference,
         lab: { ...initialUserStoreState.preference.lab, enableOAuthApps: true },
       },
+    });
+
+    render(<Page />);
+
+    expect(screen.getByText('tab.oauthApps')).toBeDefined();
+    expect(screen.getByText('oauth-apps-page')).toBeDefined();
+  });
+
+  it('renders OAuth app management for admins without the Labs preference', () => {
+    useUserStore.setState({
+      isUserStateInit: true,
+      userState: { ...initialUserStoreState.userState, isAdmin: true },
     });
 
     render(<Page />);

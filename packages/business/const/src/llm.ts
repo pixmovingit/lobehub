@@ -4,10 +4,10 @@ export const DEFAULT_CHANNEL_ROUTING_PROVIDER = 'typesafe';
 
 export const DEFAULT_EMBEDDING_PROVIDER = 'openai';
 
-export const DEFAULT_MODEL = 'deepseek-v4-flash';
-export const DEFAULT_PROVIDER = 'deepseek';
-export const DEFAULT_MINI_MODEL = 'gpt-5.6-luna';
-export const DEFAULT_MINI_PROVIDER = 'openai';
+export const DEFAULT_MODEL = 'gpt-6.1-terra';
+export const DEFAULT_PROVIDER = 'pix';
+export const DEFAULT_MINI_MODEL = 'gpt-6.1-terra';
+export const DEFAULT_MINI_PROVIDER = 'pix';
 
 /**
  * The model that scores "is this message talking to the bot?" before a bot joins a conversation
@@ -71,8 +71,8 @@ export const DEFAULT_ACCEPTANCE_DISPUTE_PANEL: { model: string; provider: string
  * build can pin both judge models in one place; a model-bank test in
  * apps/server guards the vision ability.
  */
-export const DEFAULT_VERIFY_MODEL = 'glm-5.3-flash';
-export const DEFAULT_VERIFY_PROVIDER = 'zhipu';
+export const DEFAULT_VERIFY_MODEL = 'gpt-6-luna';
+export const DEFAULT_VERIFY_PROVIDER = 'pix';
 
 /**
  * The model that splits an acceptance requirement into named verify criteria

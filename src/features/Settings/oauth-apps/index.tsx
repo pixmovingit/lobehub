@@ -24,17 +24,21 @@ const Page = ({ showSettingHeader = true }: { showSettingHeader?: boolean }) => 
   const { allowed: canManageWorkspaceApps } = usePermission('manage_settings');
   const params = useParams<{ sub?: string }>();
   const canEdit = hasEditPermission && (!activeWorkspaceId || canManageWorkspaceApps);
-  const [isPreferenceInit, enableOAuthApps] = useUserStore((s) => [
+  const [isPreferenceInit, enableOAuthApps, isAdmin] = useUserStore((s) => [
     preferenceSelectors.isPreferenceInit(s),
     labPreferSelectors.enableOAuthApps(s),
+    Boolean(s.userState?.isAdmin),
   ]);
+  // Admins manage the OIDC client registry from Settings → Admin; Labs still
+  // unlocks the same page for non-admin developers who opted in.
+  const canAccessOAuthApps = isAdmin || enableOAuthApps;
 
   // While the list is empty its empty state carries the Create button.
-  const { data: apps } = useOAuthAppList(isPreferenceInit && enableOAuthApps);
+  const { data: apps } = useOAuthAppList(isPreferenceInit && canAccessOAuthApps);
   const listEmpty = apps?.length === 0;
 
-  // Keep the page header and the body's own skeleton while the Labs flag
-  // resolves; the Create button waits for the flag because disabled means 404.
+  // Keep the page header and the body's own skeleton while preferences /
+  // admin state resolve; the Create button waits because locked means 404.
   if (!isPreferenceInit)
     return (
       <>
@@ -42,7 +46,7 @@ const Page = ({ showSettingHeader = true }: { showSettingHeader?: boolean }) => 
         {params.sub ? <AppDetailSkeleton /> : <AppListSkeleton />}
       </>
     );
-  if (!enableOAuthApps) return <NotFound />;
+  if (!canAccessOAuthApps) return <NotFound />;
 
   const canCreate = !params.sub && canEdit && !listEmpty;
 

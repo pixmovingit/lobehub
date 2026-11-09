@@ -158,6 +158,29 @@ export class SystemAdminService {
     return rows.map((row) => row.userId);
   };
 
+  /**
+   * The bootstrap / initial system admin is the earliest global `super_admin`
+   * assignment. Later grants stay ordinary system admins.
+   */
+  getBootstrapAdminUserId = async (): Promise<string | null> => {
+    const role = await this.findSuperAdminRole(this.db);
+    if (!role) return null;
+
+    const [row] = await this.db
+      .select({ userId: userRoles.userId })
+      .from(userRoles)
+      .where(and(eq(userRoles.roleId, role.id), isNull(userRoles.workspaceId)))
+      .orderBy(userRoles.createdAt, userRoles.userId)
+      .limit(1);
+
+    return row?.userId ?? null;
+  };
+
+  isBootstrapAdmin = async (userId: string): Promise<boolean> => {
+    const bootstrapAdminUserId = await this.getBootstrapAdminUserId();
+    return bootstrapAdminUserId === userId;
+  };
+
   private hasAnySuperAdmin = async (tx: DbClient): Promise<boolean> => {
     const role = await this.findSuperAdminRole(tx);
     if (!role) return false;
@@ -272,6 +295,7 @@ export type AdminListedUser = {
   email: string | null;
   fullName: string | null;
   id: string;
+  isBootstrapAdmin: boolean;
   isSuperAdmin: boolean;
   lastActiveAt: Date;
   username: string | null;
@@ -280,7 +304,7 @@ export type AdminListedUser = {
 export const listUsersForAdmin = async (
   db: LobeChatDatabase,
   options: { limit?: number; offset?: number; query?: string } = {},
-): Promise<{ items: AdminListedUser[]; total: number }> => {
+): Promise<{ bootstrapAdminUserId: string | null; items: AdminListedUser[]; total: number }> => {
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
   const offset = Math.max(options.offset ?? 0, 0);
   const query = options.query?.trim();
@@ -309,11 +333,17 @@ export const listUsersForAdmin = async (
     .offset(offset);
 
   const adminService = new SystemAdminService(db);
-  const superAdminIds = new Set(await adminService.listSuperAdminUserIds());
+  const [superAdminIdsList, bootstrapAdminUserId] = await Promise.all([
+    adminService.listSuperAdminUserIds(),
+    adminService.getBootstrapAdminUserId(),
+  ]);
+  const superAdminIds = new Set(superAdminIdsList);
 
   return {
+    bootstrapAdminUserId,
     items: rows.map((row) => ({
       ...row,
+      isBootstrapAdmin: bootstrapAdminUserId === row.id,
       isSuperAdmin: superAdminIds.has(row.id),
     })),
     total: Number(totalRow?.value ?? 0),

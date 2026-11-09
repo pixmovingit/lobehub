@@ -401,6 +401,7 @@ export default {
   'providerModels.item.releasedAt': 'Released at {{releasedAt}}',
   'providerModels.list.addNew': 'Add Model',
   'providerModels.list.disabled': 'Disabled',
+  'providerModels.list.disabledActions.enableAll': 'Enable All',
   'providerModels.list.disabledActions.showMore': 'Show All',
   'providerModels.list.disabledActions.sort': 'Sort By',
   'providerModels.list.disabledActions.sortAlphabetical': 'Sort Alphabetically',
