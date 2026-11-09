@@ -6,6 +6,7 @@ import { UserModel } from '@/database/models/user';
 import { initializeServerAnalytics } from '@/libs/analytics';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { FileS3 } from '@/server/modules/S3';
+import { SystemAdminService } from '@/server/services/systemAdmin';
 
 type CreatedUser = {
   createdAt?: Date | null;
@@ -31,6 +32,15 @@ export class UserService {
       } catch (error) {
         console.error(error);
         console.error('Failed to init new user for business');
+      }
+    } else {
+      // Self-host bootstrap: the first account (or the first after a
+      // zero-admin state) becomes the global super_admin.
+      try {
+        await new SystemAdminService(this.db).promoteBootstrapAdminIfNeeded(user.id);
+      } catch (error) {
+        console.error(error);
+        console.error('Failed to promote bootstrap system admin');
       }
     }
 

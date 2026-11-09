@@ -175,6 +175,11 @@ export interface GlobalServerConfig {
    */
   deviceGatewayUrl?: string;
   disableEmailPassword?: boolean;
+  /**
+   * Self-host bootstrap: no users exist yet, so the next signup creates the
+   * system administrator. Cloud builds always leave this false.
+   */
+  needsAdminSetup?: boolean;
   enableBusinessFeatures?: boolean;
   enableComposio?: boolean;
   /**

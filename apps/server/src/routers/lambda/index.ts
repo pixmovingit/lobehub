@@ -112,6 +112,7 @@ import { topicRouter } from './topic';
 import { topicCommentRouter } from './topicComment';
 import { trashRouter } from './trash';
 import { ttsRouter } from './tts';
+import { adminRouter } from './admin';
 import { uploadRouter } from './upload';
 import { usageRouter } from './usage';
 import { userRouter } from './user';
@@ -127,6 +128,7 @@ import { workspaceUserSettingsRouter } from './workspaceUserSettings';
 
 export const lambdaRouter = router({
   acceptance: acceptanceRouter,
+  admin: adminRouter,
   acceptanceComment: acceptanceCommentRouter,
   agent: agentRouter,
   agentAccount: agentAccountRouter,

@@ -66,6 +66,7 @@ export const DEFAULT_RESOURCE_MANAGER_COLUMN_WIDTHS = {
 
 export enum SettingsTabs {
   About = 'about',
+  AdminUsers = 'admin-users',
   Advanced = 'advanced',
   /** @deprecated Use ServiceModel instead */
   Agent = 'agent',

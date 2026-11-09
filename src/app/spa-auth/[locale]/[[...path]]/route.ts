@@ -1,9 +1,12 @@
+import { ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
+
 import { getServerFeatureFlagsValue } from '@/config/featureFlags';
 import { appEnv } from '@/envs/app';
 import { authEnv } from '@/envs/auth';
 import { buildAnalyticsConfig, fetchViteDevTemplate, renderSpaHtml } from '@/libs/spaHtml';
 import { type Locales, normalizeLocale } from '@/locales/resources';
 import { getServerAuthConfig } from '@/server/globalConfig/getServerAuthConfig';
+import { SystemAdminService } from '@/server/services/systemAdmin';
 import { type AuthSPAServerConfig } from '@/types/spaServerConfig';
 
 import { buildSeoMeta } from './seoMeta';
@@ -24,6 +27,18 @@ async function getTemplate(): Promise<string> {
   return authHtmlTemplate;
 }
 
+async function resolveNeedsAdminSetup(): Promise<boolean> {
+  if (ENABLE_BUSINESS_FEATURES) return false;
+
+  try {
+    const { serverDB } = await import('@/database/server');
+    return await SystemAdminService.needsAdminSetup(serverDB);
+  } catch (error) {
+    console.error('[SPA Auth] Failed to resolve needsAdminSetup:', error);
+    return false;
+  }
+}
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ locale: string; path?: string[] }> },
@@ -31,9 +46,10 @@ export async function GET(
   const { locale: rawLocale, path } = await params;
   const locale = normalizeLocale(rawLocale);
 
+  const needsAdminSetup = await resolveNeedsAdminSetup();
   const authConfig: AuthSPAServerConfig = {
     analyticsConfig: buildAnalyticsConfig(),
-    config: getServerAuthConfig(),
+    config: { ...getServerAuthConfig(), needsAdminSetup },
     enableOIDC: authEnv.ENABLE_OIDC,
     featureFlags: getServerFeatureFlagsValue(),
     globalCDN: appEnv.CDN_USE_GLOBAL,

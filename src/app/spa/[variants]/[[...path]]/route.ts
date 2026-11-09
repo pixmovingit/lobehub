@@ -1,4 +1,9 @@
-import { APPLE_APP_STORE_ID, BRANDING_NAME, ORG_NAME } from '@lobechat/business-const';
+import {
+  APPLE_APP_STORE_ID,
+  BRANDING_NAME,
+  ENABLE_BUSINESS_FEATURES,
+  ORG_NAME,
+} from '@lobechat/business-const';
 import { OG_URL } from '@lobechat/const';
 
 import { getServerFeatureFlagsValue } from '@/config/featureFlags';
@@ -11,6 +16,7 @@ import { translation } from '@/libs/i18n/serverTranslation';
 import { buildAnalyticsConfig, fetchViteDevTemplate, renderSpaHtml } from '@/libs/spaHtml';
 import { type Locales } from '@/locales/resources';
 import { getServerGlobalConfig } from '@/server/globalConfig';
+import { SystemAdminService } from '@/server/services/systemAdmin';
 import { type SPAClientEnv, type SPAServerConfig } from '@/types/spaServerConfig';
 import { RouteVariants } from '@/utils/server/routeVariants';
 
@@ -87,10 +93,21 @@ export async function GET(
   const { variants } = await params;
   const { locale, isMobile } = RouteVariants.deserializeVariants(variants);
 
+  const config = await getServerGlobalConfig();
+  let needsAdminSetup = false;
+  if (!ENABLE_BUSINESS_FEATURES) {
+    try {
+      const { serverDB } = await import('@/database/server');
+      needsAdminSetup = await SystemAdminService.needsAdminSetup(serverDB);
+    } catch (error) {
+      console.error('[SPA] Failed to resolve needsAdminSetup:', error);
+    }
+  }
+
   const spaConfig: SPAServerConfig = {
     analyticsConfig: buildAnalyticsConfig({ desktop: true }),
     clientEnv: buildClientEnv(),
-    config: await getServerGlobalConfig(),
+    config: { ...config, needsAdminSetup },
     featureFlags: getServerFeatureFlagsValue(),
     isMobile,
   };

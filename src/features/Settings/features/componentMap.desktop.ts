@@ -6,6 +6,7 @@ import Usage from '@/business/client/BusinessSettingPages/Usage';
 import { SettingsTabs } from '@/store/global/initialState';
 
 import About from '../about';
+import AdminUsers from '../admin-users';
 import Advanced from '../advanced';
 import APIKey from '../apikey';
 import Appearance from '../appearance';
@@ -34,6 +35,7 @@ import Tools from '../tools';
 import Trash from '../trash';
 
 export const componentMap = {
+  [SettingsTabs.AdminUsers]: AdminUsers,
   [SettingsTabs.Advanced]: Advanced,
   [SettingsTabs.Labs]: Labs,
   [SettingsTabs.Appearance]: Appearance,

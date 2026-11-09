@@ -370,6 +370,11 @@ export interface UserInitializationState {
   fullName?: string;
   hasConversation?: boolean;
   interests?: string[];
+  /**
+   * Whether the current user holds the global `super_admin` RBAC role
+   * (self-host system administrator).
+   */
+  isAdmin?: boolean;
   isFreePlan?: boolean;
   /** @deprecated Use onboarding field instead */
   isOnboard?: boolean;

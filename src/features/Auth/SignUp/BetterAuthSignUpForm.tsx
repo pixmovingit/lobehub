@@ -10,6 +10,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import { AuthCard } from '@/features/AuthCard';
 import AuthAgreement from '@/features/AuthShell/AuthAgreement';
+import { useAuthServerConfigStore } from '@/features/AuthShell/AuthServerConfigProvider';
 import { trackLoginOrSignupClicked } from '@/features/User/UserLoginOrSignup/trackLoginOrSignupClicked';
 
 import { EMAIL_REGEX } from '../SignIn/SignInEmailStep';
@@ -23,6 +24,7 @@ const BetterAuthSignUpForm = () => {
   const { t } = useTranslation('auth');
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const needsAdminSetup = useAuthServerConfigStore((s) => Boolean(s.serverConfig.needsAdminSetup));
 
   const emailInputRef = useRef<HTMLInputElement>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
@@ -55,8 +57,20 @@ const BetterAuthSignUpForm = () => {
   );
 
   return (
-    <AuthCard footer={footer} title={t('betterAuth.signup.cardTitle', { appName: BRANDING_NAME })}>
+    <AuthCard
+      footer={needsAdminSetup ? undefined : footer}
+      title={
+        needsAdminSetup
+          ? t('betterAuth.signup.adminCardTitle')
+          : t('betterAuth.signup.cardTitle', { appName: BRANDING_NAME })
+      }
+    >
       <Form form={form} gap={0} layout="vertical">
+        {needsAdminSetup && (
+          <Text style={{ marginBottom: 24 }} type="secondary">
+            {t('betterAuth.signup.adminSubtitle')}
+          </Text>
+        )}
         <Form.Field
           name="email"
           style={FIELD_STYLE}
@@ -136,7 +150,7 @@ const BetterAuthSignUpForm = () => {
 
         <AuthAgreement checked={agreementChecked} onChange={setAgreementChecked} />
         <Button block htmlType="submit" loading={loading} size="large" type="primary">
-          {t('betterAuth.signup.submit')}
+          {t(needsAdminSetup ? 'betterAuth.signup.adminSubmit' : 'betterAuth.signup.submit')}
         </Button>
       </Form>
     </AuthCard>

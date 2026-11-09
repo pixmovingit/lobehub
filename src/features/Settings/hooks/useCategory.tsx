@@ -30,6 +30,7 @@ import {
   TagIcon,
   TerminalSquare,
   Trash2,
+  UserRoundCog,
   Wrench,
 } from 'lucide-react';
 import { useMemo } from 'react';
@@ -94,6 +95,7 @@ export const useCategory = () => {
     return avatar;
   }, [avatar, remoteServerUrl]);
   const enableBusinessFeatures = useServerConfigStore(serverConfigSelectors.enableBusinessFeatures);
+  const isAdmin = useUserStore((s) => Boolean(s.userState?.isAdmin));
   const categoryGroups: CategoryGroup[] = useMemo(() => {
     const groups: CategoryGroup[] = [];
 
@@ -250,6 +252,11 @@ export const useCategory = () => {
 
     // System group
     const systemItems: CategoryItem[] = [
+      isAdmin && {
+        icon: UserRoundCog,
+        key: SettingsTabs.AdminUsers,
+        label: t('tab.adminUsers'),
+      },
       isDesktop && {
         icon: EthernetPort,
         key: SettingsTabs.Proxy,
@@ -322,6 +329,7 @@ export const useCategory = () => {
     tSubscription,
     enableBusinessFeatures,
     hideDocs,
+    isAdmin,
     mobile,
     showApiKeyManage,
     showProvider,

@@ -118,6 +118,20 @@ Separate multiple origins with commas. HTTP(S) values are reduced to their origi
 
 Use `AUTH_TRUSTED_ORIGINS` only when you intend to replace the complete generated list. When using that variable, include every required web origin and mobile custom scheme yourself. Use exact origins instead of wildcards.
 
+## First Administrator (Self-Host Bootstrap)
+
+On a fresh self-hosted database with **no users**, the signup page becomes “Create Administrator”. The first successfully created account is granted the global `super_admin` role and can open **Settings → Users** to manage every account’s profile, ban status, administrator role, and personal settings (including provider key vaults).
+
+After the first administrator exists, normal registration continues to follow your auth settings. For production self-hosting, set `AUTH_ALLOWED_EMAILS` so only trusted addresses can register.
+
+**Recover when no administrator remains:**
+
+```bash
+tsx scripts/grantSuperAdmin/index.ts admin@example.com
+```
+
+This assigns the global `super_admin` role to an existing user by email (requires `DATABASE_URL`).
+
 ## Email/Password Options
 
 **Disable email/password login (SSO-only mode):**

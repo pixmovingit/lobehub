@@ -200,6 +200,13 @@ export default {
   'betterAuth.signup.subtitle': 'Start your Agents collaboration space',
   'betterAuth.signup.success': 'Sign up successful! Please check your email for verification',
   'betterAuth.signup.cardTitle': 'Create a {{appName}} Account',
+  'betterAuth.signup.adminCardTitle': 'Create Administrator Account',
+  'betterAuth.signup.adminSubtitle':
+    'This is the first account on this deployment. It becomes the system administrator and can manage every user.',
+  'betterAuth.signup.adminSubmit': 'Create Administrator Account',
+  'betterAuth.signin.adminSignupLink': 'Create Administrator Account',
+  'signin.adminSubtitle':
+    'No users yet. Create the first administrator account to manage this deployment.',
   'betterAuth.signup.title': 'Create Account',
   'betterAuth.signup.usernamePlaceholder': 'Enter your username',
   'betterAuth.verifyEmail.backToSignIn': 'Back to Sign In',
@@ -420,6 +427,7 @@ export default {
   'session.checkFailed.description': 'We could not verify your sign-in session. Please try again.',
   'session.checkFailed.title': 'Unable to check your session',
   'signin.subtitle': 'Sign up or sign in to your {{appName}} account',
+  'signin.adminTitle': 'Create Administrator Account',
   'signin.title': 'Agent teammates that grow with you',
   'signout': 'Sign Out',
   'signup': 'Sign Up',

@@ -116,6 +116,20 @@ AUTH_ADDITIONAL_TRUSTED_ORIGINS=https://gateway.example.com
 
 仅在确实需要替换完整生成列表时使用 `AUTH_TRUSTED_ORIGINS`。使用该变量时，必须自行包含所有必需的网页来源和移动端自定义协议。请使用精确来源，不要使用通配符。
 
+## 首位管理员（自托管初始化）
+
+在全新的自托管数据库（**尚无任何用户**）上，注册页会显示为「创建管理员」。第一个成功创建的账号会获得全局 `super_admin` 角色，并可在 **设置 → 用户管理** 中管理全部用户的资料、禁用状态、管理员角色以及个人配置（含 Provider Key Vaults）。
+
+首位管理员创建后，后续注册仍遵循你的鉴权配置。生产自托管建议设置 `AUTH_ALLOWED_EMAILS`，仅允许受信任邮箱注册。
+
+**当系统中已无管理员时的恢复方式：**
+
+```bash
+tsx scripts/grantSuperAdmin/index.ts admin@example.com
+```
+
+按邮箱为已有用户授予全局 `super_admin` 角色（需要 `DATABASE_URL`）。
+
 ## 邮箱密码选项
 
 **禁用邮箱密码登录（仅 SSO 模式）：**

@@ -1,3 +1,4 @@
+import { ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
 import { EdgeConfig } from '@lobechat/edge-config';
 import debug from 'debug';
 
@@ -6,6 +7,7 @@ import { businessConfigEndpoints } from '@/business/server/lambda-routers/config
 import { publicProcedure, router } from '@/libs/trpc/lambda';
 import { getServerFeatureFlagsStateFromRuntimeConfig } from '@/server/featureFlags';
 import { getServerDefaultAgentConfig, getServerGlobalConfig } from '@/server/globalConfig';
+import { SystemAdminService } from '@/server/services/systemAdmin';
 import {
   type GlobalBillboard,
   type GlobalBillboardItem,
@@ -70,11 +72,21 @@ export const configRouter = router({
       getDevDockAccess(ctx.userId || undefined),
     ]);
 
+    let needsAdminSetup = false;
+    if (!ENABLE_BUSINESS_FEATURES) {
+      try {
+        const { serverDB } = await import('@/database/server');
+        needsAdminSetup = await SystemAdminService.needsAdminSetup(serverDB);
+      } catch (error) {
+        log('[GlobalConfig] Failed to resolve needsAdminSetup: %O', error);
+      }
+    }
+
     log('[GlobalConfig] Server config retrieved');
 
     return {
       billboard,
-      serverConfig,
+      serverConfig: { ...serverConfig, needsAdminSetup },
       serverFeatureFlags: {
         ...serverFeatureFlags,
         enableDevDock: serverFeatureFlags.enableDevDock || businessDevDockAccess,

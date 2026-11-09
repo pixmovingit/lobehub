@@ -1,3 +1,4 @@
+import { ENABLE_BUSINESS_FEATURES } from '@lobechat/business-const';
 import { isDesktop } from '@lobechat/const';
 import { isFullAccessApiKey } from '@lobechat/const/apiKeyScope';
 import type { UserInitializationState, UserPreference } from '@lobechat/types';
@@ -15,6 +16,7 @@ import { UserModel } from '@/database/models/user';
 import { router } from '@/libs/trpc/lambda';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { FileS3 } from '@/server/modules/S3';
+import { SystemAdminService } from '@/server/services/systemAdmin';
 import { after } from '@/server/utils/scheduleAfterResponse';
 
 import { userProcedure } from './procedures';
@@ -120,6 +122,16 @@ export const profileRouter = router({
 
     const hasMoreThan4Messages = messageCount > 4;
     const hasAnyMessages = messageCount > 0;
+
+    let isAdmin = false;
+    if (!ENABLE_BUSINESS_FEATURES) {
+      try {
+        isAdmin = await new SystemAdminService(ctx.serverDB).isSuperAdmin(ctx.userId);
+      } catch (error) {
+        console.error('[user.getUserState] Failed to resolve isAdmin:', error);
+      }
+    }
+
     return {
       avatar: state.avatar,
       canEnablePWAGuide: hasMoreThan4Messages,
@@ -133,6 +145,7 @@ export const profileRouter = router({
 
       agentOnboarding: state.agentOnboarding,
       interests: state.interests,
+      isAdmin,
 
       // always return true for community version
       isOnboard: state.isOnboarded ?? true,

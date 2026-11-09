@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 import AuthIcons from '@/components/AuthIcons';
 import AuthCard from '@/features/AuthCard';
 import AuthAgreement from '@/features/AuthShell/AuthAgreement';
+import { useAuthServerConfigStore } from '@/features/AuthShell/AuthServerConfigProvider';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
   inlineLink: css`
@@ -82,6 +83,7 @@ export const SignInEmailStep = ({
 }: SignInEmailStepProps) => {
   const { t } = useTranslation('auth');
   const emailInputRef = useRef<HTMLInputElement>(null);
+  const needsAdminSetup = useAuthServerConfigStore((s) => Boolean(s.serverConfig.needsAdminSetup));
 
   useEffect(() => {
     emailInputRef.current?.focus();
@@ -105,6 +107,29 @@ export const SignInEmailStep = ({
   // Config is injected synchronously via window.__SERVER_CONFIG__, so the email
   // form is the primary path unless the account is social-only.
   const showEmailForm = !disableEmailPassword && !isSocialOnly;
+
+  if (needsAdminSetup) {
+    return (
+      <AuthCard title={t('signin.adminTitle')}>
+        <Text style={{ marginBottom: 24 }} type="secondary">
+          {t('signin.adminSubtitle')}
+        </Text>
+        <AuthAgreement checked={agreementChecked} onChange={setAgreementChecked} />
+        <Button
+          block
+          size="large"
+          type="primary"
+          onClick={() =>
+            continueWithAgreement(() => {
+              onGoToSignup();
+            })
+          }
+        >
+          {t('betterAuth.signin.adminSignupLink')}
+        </Button>
+      </AuthCard>
+    );
+  }
 
   return (
     <AuthCard title={t('signin.subtitle', { appName: BRANDING_NAME })}>
