@@ -20,6 +20,10 @@ import { SystemAdminService } from '@/server/services/systemAdmin';
 import { type SPAClientEnv, type SPAServerConfig } from '@/types/spaServerConfig';
 import { RouteVariants } from '@/utils/server/routeVariants';
 
+// Injects live `needsAdminSetup` into the SPA shell; must not be frozen from
+// the empty-DB first render or the auth gate stays stuck open.
+export const dynamic = 'force-dynamic';
+
 export function generateStaticParams() {
   const mobileOptions = isDesktop ? [false] : [true, false];
   const staticLocales: Locales[] = ['en-US', 'zh-CN'];
@@ -115,5 +119,9 @@ export async function GET(
   const template = await getTemplate(isMobile);
   const seoMeta = await buildSeoMeta(locale, isMobile);
 
-  return renderSpaHtml(template, { seoMeta, serverConfig: spaConfig });
+  return renderSpaHtml(template, {
+    cacheControl: needsAdminSetup ? 'private, no-store' : 'no-cache',
+    seoMeta,
+    serverConfig: spaConfig,
+  });
 }

@@ -11,6 +11,11 @@ import { type AuthSPAServerConfig } from '@/types/spaServerConfig';
 
 import { buildSeoMeta } from './seoMeta';
 
+// needsAdminSetup is read from the live DB on every request. If this shell were
+// statically cached after the empty-DB first visit, sign-in would keep showing
+// "Create Administrator" forever and lock out the real first admin.
+export const dynamic = 'force-dynamic';
+
 export function generateStaticParams() {
   const staticLocales: Locales[] = ['en-US', 'zh-CN'];
 
@@ -59,5 +64,11 @@ export async function GET(
   const pathname = `/${(path ?? []).join('/')}`;
   const seoMeta = await buildSeoMeta(locale, pathname);
 
-  return renderSpaHtml(template, { seoMeta, serverConfig: authConfig });
+  return renderSpaHtml(template, {
+    // Mirror spa-config: never let a CDN keep the bootstrap gate after the
+    // first admin exists.
+    cacheControl: needsAdminSetup ? 'private, no-store' : 'no-cache',
+    seoMeta,
+    serverConfig: authConfig,
+  });
 }

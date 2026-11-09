@@ -163,7 +163,7 @@ export function buildAnalyticsConfig(options: { desktop?: boolean } = {}): Analy
 
 export function renderSpaHtml(
   template: string,
-  options: { seoMeta: string; serverConfig: unknown },
+  options: { cacheControl?: string; seoMeta: string; serverConfig: unknown },
 ): Response {
   let html = template.replace(
     SERVER_CONFIG_PLACEHOLDER,
@@ -175,7 +175,7 @@ export function renderSpaHtml(
 
   return new Response(html, {
     headers: {
-      'Cache-Control': 'no-cache',
+      'Cache-Control': options.cacheControl ?? 'no-cache',
       'content-type': 'text/html; charset=utf-8',
     },
   });

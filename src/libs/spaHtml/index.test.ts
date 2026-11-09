@@ -36,6 +36,16 @@ describe('renderSpaHtml', () => {
 
     expect(await res.text()).not.toContain('</script>');
   });
+
+  it('allows callers to override Cache-Control for bootstrap-sensitive shells', async () => {
+    const res = renderSpaHtml('<html></html>', {
+      cacheControl: 'private, no-store',
+      seoMeta: '',
+      serverConfig: { needsAdminSetup: true },
+    });
+
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+  });
 });
 
 describe('fetchViteDevTemplate', () => {
