@@ -111,7 +111,7 @@
     "lint:style": "stylelint \"{src,tests}/**/*.{css,less}\" --fix --allow-empty-input",
     "lint:ts": "oxlint src/ tests/ apps/server/src/",
     "lint:unused": "knip --include files,exports,types,enumMembers,duplicates",
-    "prepare": "git rev-parse --git-dir > /dev/null 2>&1 && git config core.hooksPath .githooks || true",
+    "prepare": "node -e \"try{require('child_process').execSync('git rev-parse --git-dir',{stdio:'ignore'});require('child_process').execSync('git config core.hooksPath .githooks')}catch{}\"",
     "prettier": "prettier -c --write \"**/**\"",
     "pull": "git pull",
     "qstash": "pnpx @upstash/qstash-cli@latest dev",

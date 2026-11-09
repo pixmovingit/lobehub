@@ -46,7 +46,7 @@ const ImageSettings = memo(({ deployment }: ImageSettingsProps) => {
 
       setIsUpdating(true);
       try {
-        if (deployment) await deployment.onChange(values);
+        if (deployment) await deployment.onChange({ ...imageSettings, ...values });
         else await setSettings({ image: values });
       } finally {
         setIsUpdating(false);

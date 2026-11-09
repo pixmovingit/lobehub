@@ -48,7 +48,7 @@ const CreateDefaultProviderContent = memo<CreateDefaultProviderContentProps>(
     const { close } = useModalContext();
 
     const form = useForm<CreateFormValues>({
-      initialValues: { enabled: true },
+      initialValues: { enabled: true } as CreateFormValues,
       onSubmit: async (values) => {
         setLoading(true);
         try {
@@ -207,7 +207,7 @@ const CreateDefaultProviderContent = memo<CreateDefaultProviderContentProps>(
             label={t('adminDefaultSettings.enabledLabel')}
             name="enabled"
             style={itemStyle}
-            valuePropName="checked"
+            valueProp="checked"
           >
             <Switch />
           </Form.Field>

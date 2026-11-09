@@ -172,7 +172,7 @@ export const aiProviderRouter = router({
 
       // restricted API keys must not exfiltrate decrypted provider credentials
       if (detail && ctx.apiKeyScopes !== undefined && !isFullAccessApiKey(ctx.apiKeyScopes)) {
-        return { ...detail, keyVaults: undefined };
+        return { ...detail, keyVaults: undefined } satisfies AiProviderDetailItem;
       }
 
       return detail;

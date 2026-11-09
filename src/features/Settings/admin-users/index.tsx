@@ -278,7 +278,7 @@ interface AdminUserDetailFormProps {
   userId: string;
 }
 
-const resolveDeleteErrorMessage = (error: unknown, t: (key: string) => string) => {
+const resolveDeleteErrorMessage = (error: unknown, t: (key: any) => string) => {
   if (!(error instanceof Error)) return t('adminUsers.deleteFailed');
   if (/Cannot delete your own account/i.test(error.message)) return t('adminUsers.deleteSelfError');
   if (/Only the initial administrator can delete another system administrator/i.test(error.message)) {
@@ -389,7 +389,7 @@ const AdminUserDetailForm = memo(
             extra={isSelf ? t('adminUsers.selfBanHint') : undefined}
             label={t('adminUsers.fields.banned')}
             name="banned"
-            valuePropName="checked"
+            valueProp="checked"
           >
             <Switch disabled={isSelf} />
           </Form.Field>
@@ -399,7 +399,7 @@ const AdminUserDetailForm = memo(
           <Form.Field
             label={t('adminUsers.fields.isSuperAdmin')}
             name="isSuperAdmin"
-            valuePropName="checked"
+            valueProp="checked"
           >
             <Switch disabled={targetIsBootstrapAdmin} />
           </Form.Field>

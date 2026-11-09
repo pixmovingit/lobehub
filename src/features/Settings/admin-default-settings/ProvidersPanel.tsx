@@ -198,16 +198,21 @@ const ProvidersPanel = memo(() => {
                   {provider.id}
                 </Text>
               </div>
-              <Switch
-                checked={provider.enabled}
+              <span
                 onClick={(event) => event.stopPropagation()}
-                onChange={async (enabled) => {
-                  await adminService.updateSystemAiProvider({ enabled, id: provider.id });
-                  await mutate();
-                  if (selectedId === provider.id) await mutateDetail();
-                  await refreshUserProviderCatalog();
-                }}
-              />
+                onKeyDown={(event) => event.stopPropagation()}
+                role="presentation"
+              >
+                <Switch
+                  checked={provider.enabled}
+                  onChange={async (enabled) => {
+                    await adminService.updateSystemAiProvider({ enabled, id: provider.id });
+                    await mutate();
+                    if (selectedId === provider.id) await mutateDetail();
+                    await refreshUserProviderCatalog();
+                  }}
+                />
+              </span>
             </div>
           ))}
         </div>

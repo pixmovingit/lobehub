@@ -186,7 +186,7 @@ export class AiInfraRepos {
         const systemModelsForProvider = systemModels.filter((m) => m.providerId === provider.id);
         const catalogModels = mergeArrayById(
           builtinModelsForProvider || [],
-          systemModelsForProvider,
+          systemModelsForProvider as AiProviderModelListItem[],
         ) as (EnabledAiModel & { enabled?: boolean | null })[];
 
         return catalogModels
@@ -501,12 +501,12 @@ export class AiInfraRepos {
 
     return {
       ...merged,
-      description: systemProvider.description,
-      logo: systemProvider.logo,
+      description: systemProvider.description ?? undefined,
+      logo: systemProvider.logo ?? undefined,
       name: systemProvider.name,
       settings: merge(systemProvider.settings || {}, config?.settings || {}),
-      source: 'custom',
-    };
+      source: 'custom' as const,
+    } satisfies AiProviderDetailItem;
   };
 
   /**

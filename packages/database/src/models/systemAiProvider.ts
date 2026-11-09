@@ -84,6 +84,7 @@ export class SystemAiProviderModel {
   ): Promise<Omit<DecryptedSystemAiProvider, 'keyVaults'>[]> => {
     const rows = await db
       .select({
+        accessedAt: systemAiProviders.accessedAt,
         checkModel: systemAiProviders.checkModel,
         config: systemAiProviders.config,
         createdAt: systemAiProviders.createdAt,
@@ -118,8 +119,12 @@ export class SystemAiProviderModel {
 
     // Surface as custom so existing Provider UI (logo / description) keeps working.
     return rows.map((row) => ({
-      ...row,
+      description: row.description ?? undefined,
       enabled: Boolean(row.enabled),
+      id: row.id,
+      logo: row.logo ?? undefined,
+      name: row.name,
+      sort: row.sort ?? undefined,
       source: 'custom' as const,
     }));
   };
