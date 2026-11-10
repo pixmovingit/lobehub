@@ -85,6 +85,7 @@ vi.mock('./useFileListItemDrag', () => ({
 vi.mock('./useFileListItemMeta', () => ({
   useFileListItemMeta: () => ({
     displayTime: '2026-07-05',
+    displayUpdatedTime: '2026-07-05',
     emoji: undefined,
     isFolder: false,
     isPage: false,
@@ -108,7 +109,7 @@ const baseProps = {
   chunkCount: null,
   chunkingError: null,
   chunkingStatus: null,
-  columnWidths: { date: 160, name: 400, size: 140, uploader: 180 },
+  columnWidths: { date: 160, name: 400, size: 140, updated: 160, uploader: 180 },
   createdAt: new Date('2026-07-05T00:00:00Z'),
   embeddingError: null,
   embeddingStatus: null,

@@ -166,7 +166,7 @@ export class GlobalGeneralActionImpl {
   };
 
   updateResourceManagerColumnWidth = (
-    column: 'name' | 'date' | 'size' | 'uploader',
+    column: 'name' | 'date' | 'size' | 'updated' | 'uploader',
     width: number,
   ): void => {
     const currentWidths = {

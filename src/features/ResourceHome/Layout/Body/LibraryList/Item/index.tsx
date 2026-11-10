@@ -1,9 +1,12 @@
-import { cssVar, Spin } from '@lobehub/ui';
+import { cssVar, Spin, Tag } from '@lobehub/ui';
 import React, { memo, useCallback, useMemo } from 'react';
 import { type CSSProperties } from 'react';
+import { useTranslation } from 'react-i18next';
 
+import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import LibraryStatusIcon from '@/components/LibIcon/StatusIcon';
 import NavItem from '@/features/NavPanel/components/NavItem';
+import { resolveLibrarySharingState } from '@/features/ResourceLibrary/libraryHeroMeta';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { usePermission } from '@/hooks/usePermission';
@@ -19,6 +22,7 @@ interface KnowledgeBaseItemProps {
   className?: string;
   description?: string | null;
   id: string;
+  isShared?: boolean;
   memberRestricted?: boolean;
   name: string;
   permissionManageable?: boolean;
@@ -31,6 +35,7 @@ const KnowledgeBaseItem = memo<KnowledgeBaseItemProps>(
   ({
     accessLevel,
     id,
+    isShared,
     name,
     description,
     active,
@@ -41,6 +46,8 @@ const KnowledgeBaseItem = memo<KnowledgeBaseItemProps>(
     memberRestricted,
     permissionManageable,
   }) => {
+    const { t } = useTranslation('file');
+    const activeWorkspaceId = useActiveWorkspaceId();
     const setLibraryId = useResourceManagerStore((s) => s.setLibraryId);
     const navigate = useWorkspaceAwareNavigate();
     const { allowed: canEdit } = usePermission('edit_own_content');
@@ -77,11 +84,26 @@ const KnowledgeBaseItem = memo<KnowledgeBaseItemProps>(
       [canEdit, toggleEditing],
     );
 
+    const {
+      isShared: shared,
+      statusVisibility,
+      tagColor,
+    } = resolveLibrarySharingState({
+      activeWorkspaceId,
+      isShared,
+      visibility,
+    });
+    const sharingLabel = shared
+      ? activeWorkspaceId
+        ? t('docs.library.sharing.workspace')
+        : t('docs.library.sharing.shared')
+      : t('docs.library.sharing.private');
+
     // Restricted (No-access) KBs are invisible to plain members, so this row
     // only renders for managers — the lock tells them at a glance which shared
     // KBs members cannot open. The flag rides on the list query, so it costs
     // no per-row permission request.
-    const isMemberRestricted = visibility === 'public' && !!memberRestricted;
+    const isMemberRestricted = statusVisibility === 'public' && !!memberRestricted;
 
     // Keep the same private / restricted / workspace icon language as the
     // active-library header and its switcher.
@@ -94,10 +116,10 @@ const KnowledgeBaseItem = memo<KnowledgeBaseItemProps>(
         <LibraryStatusIcon
           memberRestricted={isMemberRestricted}
           size={18}
-          visibility={visibility}
+          visibility={statusVisibility}
         />
       );
-    }, [isLoading, visibility, isMemberRestricted]);
+    }, [isLoading, statusVisibility, isMemberRestricted]);
 
     const dropdownMenu = useDropdownMenu({
       accessLevel,
@@ -123,6 +145,13 @@ const KnowledgeBaseItem = memo<KnowledgeBaseItemProps>(
           loading={isLoading}
           style={style}
           title={editing ? <Editing id={id} name={name} toggleEditing={toggleEditing} /> : name}
+          extra={
+            editing ? undefined : (
+              <Tag color={tagColor} size={'small'}>
+                {sharingLabel}
+              </Tag>
+            )
+          }
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}
         />

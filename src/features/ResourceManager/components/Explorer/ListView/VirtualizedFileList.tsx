@@ -44,6 +44,7 @@ interface VirtualizedFileListProps {
     date: number;
     name: number;
     size: number;
+    updated: number;
     uploader: number;
   };
   data: FileListItem[];

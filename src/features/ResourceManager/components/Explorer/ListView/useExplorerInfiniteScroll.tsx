@@ -9,6 +9,7 @@ interface ColumnWidths {
   date: number;
   name: number;
   size: number;
+  updated: number;
   uploader: number;
 }
 

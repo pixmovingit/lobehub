@@ -214,6 +214,7 @@ export default {
   'library.share.addConfirm_other': 'Add {{count}} users',
   'library.share.addSuccess': 'Users added',
   'library.share.addTitle': 'Share with users',
+  'library.share.alreadyShared': 'Already shared',
   'library.share.allDesc':
     'Every registered user on this instance gets the selected access level on this knowledge base.',
   'library.share.allDisabled': 'Stopped sharing with all users',
@@ -221,10 +222,11 @@ export default {
   'library.share.allLabel': 'Share with all registered users',
   'library.share.backToDocs': 'Back to Docs',
   'library.share.collaboratorsDesc':
-    'Choose each user’s access: view, edit, delete, or full. Defaults to view-only.',
+    'Choose each user’s access: view, edit, or full. Defaults to view-only.',
   'library.share.collaboratorsEmpty': 'No shared users yet',
   'library.share.collaboratorsTitle': 'Shared users',
   'library.share.copyInvite': 'Copy invite link',
+  'library.share.emptyUsers': 'No other users yet',
   'library.share.generalGroup': 'General access',
   'library.share.inviteCopied': 'Invite link copied',
   'library.share.inviteDesc':
@@ -232,6 +234,8 @@ export default {
   'library.share.inviteGroup': 'Invite link',
   'library.share.inviteLabel': 'Reusable invite',
   'library.share.inviteRotated': 'Invite link rotated',
+  'library.share.loadingMore': 'Loading more…',
+  'library.share.loadingUsers': 'Loading users…',
   'library.share.menuEntry': 'Share',
   'library.share.noMatch': 'No matching users',
   'library.share.notice':
@@ -243,9 +247,7 @@ export default {
   'library.share.removeConfirmTitle': 'Remove {{name}}?',
   'library.share.removeSuccess': 'Access removed',
   'library.share.rotateInvite': 'Rotate link',
-  'library.share.searchHint': 'Search by email or username (at least 2 characters)',
-  'library.share.searchPlaceholder': 'Search users',
-  'library.share.searching': 'Searching…',
+  'library.share.searchFilterPlaceholder': 'Filter by email or username',
   'library.share.selectedCount_one': '{{count}} user selected',
   'library.share.selectedCount_other': '{{count}} users selected',
   'library.share.updateFailed': 'Failed to update sharing settings',
@@ -512,6 +514,7 @@ export default {
   'pageEditor.history.current': 'Current',
   'pageEditor.history.dayLabel.today': 'Today',
   'pageEditor.history.dayLabel.yesterday': 'Yesterday',
+  'pageEditor.history.editorYou': 'you',
   'pageEditor.history.empty': 'No version history yet',
   'pageEditor.history.compareOldLabel': 'Restore To',
   'pageEditor.history.restore': 'Restore',

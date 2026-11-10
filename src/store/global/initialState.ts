@@ -61,6 +61,7 @@ export const DEFAULT_RESOURCE_MANAGER_COLUMN_WIDTHS = {
   date: 160,
   name: 574,
   size: 140,
+  updated: 160,
   uploader: 180,
 };
 
@@ -392,6 +393,7 @@ export interface SystemStatus {
     date: number;
     name: number;
     size: number;
+    updated: number;
     uploader: number;
   };
   /**

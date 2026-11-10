@@ -9,6 +9,10 @@ vi.mock('@/hooks/usePermission', () => ({
   usePermission: () => permission,
 }));
 
+vi.mock('@/features/ResourceManager/hooks/useCanEditLibraryContent', () => ({
+  useCanEditLibraryContent: () => permission,
+}));
+
 vi.mock('@/business/client/hooks/useActiveWorkspaceId', () => ({
   useActiveWorkspaceId: () => undefined,
 }));

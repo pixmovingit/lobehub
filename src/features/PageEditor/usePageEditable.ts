@@ -1,5 +1,6 @@
 'use client';
 
+import { usePersonalLibraryContentEditable } from '@/features/ResourceLibrary/usePersonalLibraryContentEditable';
 import { useResourceAccess } from '@/features/ResourcePermission/useResourceAccess';
 import { usePermission } from '@/hooks/usePermission';
 import { useDocumentStore } from '@/store/document';
@@ -15,10 +16,14 @@ import { usePageLockedByOther } from './usePageLockedByOther';
  * page becomes read-only while another member holds the edit lock. The lock is
  * acquired implicitly on the first edit; a peek on open (see {@link useDocumentLock})
  * surfaces an existing holder so the page is read-only up front.
+ *
+ * Personal shared libraries additionally require an `edit` (or higher) grant;
+ * `view` keeps the body read-only even for documents the caller created earlier.
  */
 export const usePageEditable = (): boolean => {
   const { allowed: hasEditPermission } = usePermission('edit_own_content');
   const documentId = usePageEditorStore((s) => s.documentId);
+  const knowledgeBaseId = usePageEditorStore((s) => s.knowledgeBaseId);
   const isWorkspacePage = usePageEditorStore((s) => s.isWorkspacePage);
   const isLockedByOther = usePageLockedByOther();
   // Read-only until the lock resolves, so the user can't start typing on a page
@@ -37,6 +42,7 @@ export const usePageEditable = (): boolean => {
     'document',
     isWorkspacePage && documentId ? documentId : undefined,
   );
+  const canEditPersonalLibrary = usePersonalLibraryContentEditable(knowledgeBaseId);
 
   // An agent command is writing the stored page (no collaboration room).
   const isAgentEditing = useDocumentStore((s) =>
@@ -49,6 +55,7 @@ export const usePageEditable = (): boolean => {
     return (
       hasEditPermission &&
       canEditResource &&
+      canEditPersonalLibrary &&
       collab.access === 'edit' &&
       (collab.status === 'synced' || collab.status === 'offline')
     );
@@ -57,6 +64,7 @@ export const usePageEditable = (): boolean => {
   return (
     hasEditPermission &&
     canEditResource &&
+    canEditPersonalLibrary &&
     !isLockedByOther &&
     !pendingLock &&
     !saveBlockedByLock &&

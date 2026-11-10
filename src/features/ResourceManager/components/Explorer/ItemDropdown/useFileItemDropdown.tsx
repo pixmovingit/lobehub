@@ -23,11 +23,11 @@ import RepoIcon from '@/components/LibIcon';
 import { useSendToMessengerMenuItem } from '@/features/Messenger/PushResourceModal/useSendToMessengerMenuItem';
 import { useKnowledgeBaseListContext } from '@/features/ResourceManager/components/KnowledgeBaseListProvider';
 import { PAGE_FILE_TYPE } from '@/features/ResourceManager/constants';
+import { useCanEditLibraryContent } from '@/features/ResourceManager/hooks/useCanEditLibraryContent';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { buildPagePath } from '@/features/ResourceManager/utils/resourcePath';
 import VisibilityConfirmContent from '@/features/VisibilityConfirmContent';
 import { useAppOrigin } from '@/hooks/useAppOrigin';
-import { usePermission } from '@/hooks/usePermission';
 import { documentService } from '@/services/document';
 import { fileService } from '@/services/file';
 import { useFileStore } from '@/store/file';
@@ -110,7 +110,7 @@ export const useFileItemDropdown = ({
   const { t } = useTranslation(['components', 'common', 'knowledgeBase', 'chat']);
 
   const appOrigin = useAppOrigin();
-  const { allowed: canEditResources } = usePermission('edit_own_content');
+  const { allowed: canEditResources } = useCanEditLibraryContent();
   const currentUserId = useUserStore(userProfileSelectors.userId);
   const activeWorkspaceId = useActiveWorkspaceId();
   const activeWorkspaceSlug = useActiveWorkspaceSlug();

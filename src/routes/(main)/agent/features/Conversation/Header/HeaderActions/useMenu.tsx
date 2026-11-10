@@ -132,12 +132,6 @@ export const useMenu = ({ share }: UseMenuOptions = {}): {
     async (item: DocumentHistoryListItem, onSuccess?: () => void): Promise<void> => {
       if (!docId || item.isCurrent) return;
 
-      const { editor, markDirty, performSave } = useDocumentStore.getState();
-      if (!editor) {
-        toast.error(t('pageEditor.history.restoreError', { ns: 'file' }));
-        return;
-      }
-
       confirmModal({
         cancelText: t('cancel', { ns: 'common' }),
         content: t('pageEditor.history.restoreConfirm.content', {
@@ -152,12 +146,9 @@ export const useMenu = ({ share }: UseMenuOptions = {}): {
               `header-actions-history-${docId}`,
             );
 
-            editor.setDocument('json', JSON.stringify(result.editorData), { keepId: true });
-            markDirty(docId);
-            await performSave(docId, undefined, {
-              restoreFromHistoryId: item.id,
-              saveSource: 'restore',
-            });
+            await useDocumentStore
+              .getState()
+              .restoreVersion(docId, { editorData: result.editorData, historyId: item.id });
             onSuccess?.();
           } catch (error) {
             console.error('[HeaderActions] Failed to restore history item:', error);

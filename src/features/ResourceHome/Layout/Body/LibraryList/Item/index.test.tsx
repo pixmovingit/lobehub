@@ -18,12 +18,25 @@ vi.mock('@/components/LibIcon', () => ({
 }));
 
 vi.mock('@/features/NavPanel/components/NavItem', () => ({
-  default: ({ actions, title }: { actions?: ReactNode; title: ReactNode }) => (
+  default: ({
+    actions,
+    extra,
+    title,
+  }: {
+    actions?: ReactNode;
+    extra?: ReactNode;
+    title: ReactNode;
+  }) => (
     <div data-testid="nav-item">
       <span data-testid="nav-title">{title}</span>
+      {extra}
       {actions}
     </div>
   ),
+}));
+
+vi.mock('@/business/client/hooks/useActiveWorkspaceId', () => ({
+  useActiveWorkspaceId: () => undefined,
 }));
 
 vi.mock('@/features/Workspace/useWorkspaceAwareNavigate', () => ({
@@ -37,6 +50,10 @@ vi.mock('@/features/NavPanel/OverlayContainer', () => ({
 vi.mock('@/features/ResourceManager/store', () => ({
   useResourceManagerStore: (selector: (state: { setLibraryId: () => void }) => unknown) =>
     selector({ setLibraryId: vi.fn() }),
+}));
+
+vi.mock('@/hooks/usePermission', () => ({
+  usePermission: () => ({ allowed: true }),
 }));
 
 vi.mock('@/store/library', () => ({

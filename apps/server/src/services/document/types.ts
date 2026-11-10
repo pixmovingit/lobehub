@@ -19,9 +19,19 @@ export interface DocumentHistoryAccessOptions {
   historySince?: Date;
 }
 
+/** Display profile for the member attributed on a history row. */
+export interface DocumentHistoryEditor {
+  avatar?: string | null;
+  fullName?: string | null;
+  id: string;
+  username?: string | null;
+}
+
 export interface DocumentHistoryListItem {
   /** Agent that produced an `llm_call` version. */
   agentId?: string | null;
+  /** Profile for {@link userId}; filled when listing so clients need no member directory. */
+  editor?: DocumentHistoryEditor | null;
   /** Everyone whose edits this version records; absent on versions saved before attribution. */
   editorIds?: string[] | null;
   id: string;

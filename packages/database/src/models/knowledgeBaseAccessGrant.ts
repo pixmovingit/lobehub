@@ -5,7 +5,7 @@ import {
   knowledgeBaseGrantAccessAtLeast,
 } from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
-import { and, eq, ilike, inArray, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, asc, eq, ilike, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 
 import {
   documents,
@@ -420,6 +420,34 @@ export class KnowledgeBaseAccessGrantModel {
   };
 
   /**
+   * Whether a personal-library grant allows mutating this row at `required`.
+   *
+   * Returns `true` when the row is outside every personal-share library path
+   * (caller keeps using ordinary ownership). Inside a personal library, even the
+   * row's creator must hold at least `required` — demoting a collaborator to
+   * `view` must stop edits to documents they previously created there.
+   */
+  static personalLibraryAllowsMutation = async (
+    db: LobeChatDatabase,
+    userId: string,
+    required: KnowledgeBaseGrantAccessLevel,
+    target: { documentId: string } | { fileId: string },
+  ): Promise<boolean> => {
+    const level =
+      'documentId' in target
+        ? await KnowledgeBaseAccessGrantModel.resolveAccessLevelForDocument(
+            db,
+            target.documentId,
+            userId,
+          )
+        : await KnowledgeBaseAccessGrantModel.resolveAccessLevelForFile(db, target.fileId, userId);
+
+    if (!level) return true;
+    if (level === 'owner') return true;
+    return knowledgeBaseGrantAccessAtLeast(level, required);
+  };
+
+  /**
    * Owner or a personal-share `full` grantee may manage collaborators / invites.
    * Content grades below `full` stay content-only.
    */
@@ -777,14 +805,37 @@ export class KnowledgeBaseAccessGrantModel {
   };
 
   /**
-   * Narrow user lookup for the share picker: exact email (case-insensitive)
-   * or username prefix. Never returns the caller; capped result set.
+   * Paged user picker for personal sharing. Empty `query` lists everyone except
+   * the caller; any non-empty query (no minimum length) matches username,
+   * full name, or email as a case-insensitive substring.
    */
-  searchShareableUsers = async (query: string) => {
+  listShareableUsers = async ({
+    limit = SHAREABLE_USER_LIMIT,
+    offset = 0,
+    query = '',
+  }: {
+    limit?: number;
+    offset?: number;
+    query?: string;
+  } = {}) => {
+    const pageSize = Math.min(Math.max(limit, 1), 50);
+    const pageOffset = Math.max(offset, 0);
     const q = query.trim();
-    if (q.length < 2) return [];
+    // Escape LIKE wildcards so user input is treated literally.
+    const likePattern = `%${q.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`;
 
-    const looksLikeEmail = q.includes('@');
+    const filter =
+      q.length === 0
+        ? ne(users.id, this.userId)
+        : and(
+            ne(users.id, this.userId),
+            or(
+              ilike(users.username, likePattern),
+              ilike(users.fullName, likePattern),
+              ilike(users.email, likePattern),
+            ),
+          );
+
     const rows = await this.db
       .select({
         avatar: users.avatar,
@@ -794,16 +845,24 @@ export class KnowledgeBaseAccessGrantModel {
         username: users.username,
       })
       .from(users)
-      .where(
-        and(
-          ne(users.id, this.userId),
-          looksLikeEmail
-            ? sql`lower(${users.email}) = lower(${q})`
-            : or(ilike(users.username, `${q}%`), ilike(users.fullName, `${q}%`)),
-        ),
-      )
-      .limit(SHAREABLE_USER_LIMIT);
+      .where(filter)
+      .orderBy(asc(users.username), asc(users.id))
+      .limit(pageSize + 1)
+      .offset(pageOffset);
 
-    return rows;
+    const hasMore = rows.length > pageSize;
+    const items = hasMore ? rows.slice(0, pageSize) : rows;
+
+    return {
+      hasMore,
+      items,
+      nextOffset: pageOffset + items.length,
+    };
+  };
+
+  /** @deprecated Prefer {@link listShareableUsers}. */
+  searchShareableUsers = async (query: string) => {
+    const page = await this.listShareableUsers({ limit: SHAREABLE_USER_LIMIT, query });
+    return page.items;
   };
 }

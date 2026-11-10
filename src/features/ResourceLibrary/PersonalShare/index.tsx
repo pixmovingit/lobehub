@@ -92,6 +92,11 @@ const PersonalLibraryShare = memo(() => {
     return `${window.location.origin}/resource/library/share/accept?token=${encodeURIComponent(invite.token)}`;
   }, [invite?.token]);
 
+  const existingUserIds = useMemo(
+    () => (data?.collaborators ?? []).map((user) => user.id),
+    [data?.collaborators],
+  );
+
   const handleShareWithAll = useCallback(
     async (enabled: boolean, accessLevel?: KnowledgeBaseGrantAccessLevel) => {
       if (!id) return;
@@ -231,7 +236,11 @@ const PersonalLibraryShare = memo(() => {
       ),
       desc: t('library.share.collaboratorsDesc'),
       extra: (
-        <AddShareUsersButton knowledgeBaseId={id} onAdded={() => void refreshShareAndLibrary()} />
+        <AddShareUsersButton
+          existingUserIds={existingUserIds}
+          knowledgeBaseId={id}
+          onAdded={() => void refreshShareAndLibrary()}
+        />
       ),
       title: t('library.share.collaboratorsTitle'),
     },

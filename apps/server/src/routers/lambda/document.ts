@@ -21,7 +21,10 @@ import { DocumentService } from '@/server/services/document';
 import { resolveDocumentWrite } from '@/server/services/document/editorData';
 import { canViewDocumentContent, getDocumentForViewer } from '@/server/services/documentAccess';
 import { FileService } from '@/server/services/file';
-import { assertPersonalSharedDocumentAccess } from '@/server/services/knowledgeBaseAccess';
+import {
+  assertPersonalKnowledgeBaseAccess,
+  assertPersonalSharedDocumentAccess,
+} from '@/server/services/knowledgeBaseAccess';
 import { resolvePageAccess } from '@/server/services/pageCollab';
 import {
   snapshotPageThroughRoom,
@@ -233,6 +236,9 @@ export const documentRouter = router({
       }
 
       await assertCanCreateUnderParent(ctx, resolvedParentId);
+      if (!ctx.workspaceId && documentInput.knowledgeBaseId) {
+        await assertPersonalKnowledgeBaseAccess(ctx, documentInput.knowledgeBaseId, 'edit');
+      }
 
       const { content, editorData } = await resolveDocumentWrite({
         content: documentInput.content,
@@ -317,6 +323,14 @@ export const documentRouter = router({
       ] as string[];
       for (const parentId of parentIds) {
         await assertCanCreateUnderParent(ctx, parentId);
+      }
+      if (!ctx.workspaceId) {
+        const knowledgeBaseIds = [
+          ...new Set(processedDocuments.map((doc) => doc.knowledgeBaseId).filter(Boolean)),
+        ] as string[];
+        for (const knowledgeBaseId of knowledgeBaseIds) {
+          await assertPersonalKnowledgeBaseAccess(ctx, knowledgeBaseId, 'edit');
+        }
       }
 
       const createdDocuments = await ctx.documentService.createDocuments(processedDocuments);

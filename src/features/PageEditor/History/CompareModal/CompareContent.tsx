@@ -11,9 +11,12 @@ import type {
   DocumentHistoryListItem,
   DocumentHistorySaveSource,
 } from '@/server/routers/lambda/_schema/documentHistory';
+import { useUserStore } from '@/store/user';
+import { userProfileSelectors } from '@/store/user/selectors';
 
 import DocumentHistoryDiff from '../DocumentHistoryDiff';
 import { formatHistoryAbsoluteTime } from '../formatHistoryDate';
+import { resolveHistoryEditorName } from '../resolveHistoryEditorName';
 import HistorySidebar from './HistorySidebar';
 
 const styles = createStaticStyles(({ css }) => ({
@@ -113,6 +116,16 @@ const CompareContent = memo<CompareContentProps>(
     );
 
     const authorInfo = useAuthorInfo(selectedItem?.userId);
+    const currentUserId = useUserStore(userProfileSelectors.userId);
+    const editorName = selectedItem
+      ? resolveHistoryEditorName({
+          currentUserId,
+          editor: selectedItem.editor,
+          fallbackFullName: authorInfo?.fullName,
+          userId: selectedItem.userId,
+          youLabel: t('pageEditor.history.editorYou'),
+        })
+      : null;
 
     if (!selectedItem) return null;
 
@@ -132,9 +145,9 @@ const CompareContent = memo<CompareContentProps>(
                 {dayjs(selectedItem.savedAt).fromNow()} ·{' '}
                 {saveSourceLabels[selectedItem.saveSource]}
               </Text>
-              {authorInfo?.fullName && (
-                <Text className={styles.meta} title={authorInfo.fullName} type={'secondary'}>
-                  · {authorInfo.fullName}
+              {editorName && (
+                <Text className={styles.meta} title={editorName} type={'secondary'}>
+                  · {editorName}
                 </Text>
               )}
             </Flexbox>

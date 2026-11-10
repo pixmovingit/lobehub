@@ -535,6 +535,20 @@ export class DocumentModel {
       updatedAt: nextDocumentUpdatedAt(),
     };
 
+    // Personal-library grants apply before ownership: a view-only collaborator
+    // must not keep editing documents they created while they still had edit.
+    if (
+      !this.workspaceId &&
+      !(await KnowledgeBaseAccessGrantModel.personalLibraryAllowsMutation(
+        this.db,
+        this.userId,
+        'edit',
+        { documentId: id },
+      ))
+    ) {
+      return undefined;
+    }
+
     const [ownedRow] = await this.db
       .update(documents)
       .set(setValue)

@@ -5,7 +5,7 @@ import { isNull } from 'es-toolkit/compat';
 import { FileBoxIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import { usePermission } from '@/hooks/usePermission';
+import { useCanEditLibraryContent } from '@/features/ResourceManager/hooks/useCanEditLibraryContent';
 import { getChunkTargetId } from '@/store/file';
 
 import ChunksBadge from './ChunkTag';
@@ -74,7 +74,7 @@ const FileListItemActions = ({
   parseFiles,
   t,
 }: FileListItemActionsProps) => {
-  const { allowed: canEditResources } = usePermission('edit_own_content');
+  const { allowed: canEditResources } = useCanEditLibraryContent();
   const chunkTargetId = getChunkTargetId({ fileId, id });
 
   return (

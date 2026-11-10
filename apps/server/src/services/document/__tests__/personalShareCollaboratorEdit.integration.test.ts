@@ -135,4 +135,39 @@ describe('personal share collaborator document edit', () => {
       content: 'compliance update',
     });
   });
+
+  it('blocks a demoted view-only collaborator from editing a document they created', async () => {
+    const kb = await new KnowledgeBaseModel(serverDB, ownerId).create({ name: 'Shared KB' });
+    const grants = new KnowledgeBaseAccessGrantModel(serverDB, ownerId);
+    await grants.addUsers(kb.id, [editorId], 'edit');
+
+    const note = await new DocumentModel(serverDB, editorId).create({
+      content: 'mine',
+      editorData: createValidEditorData('mine'),
+      fileType: 'custom/document',
+      filename: 'note',
+      knowledgeBaseId: kb.id,
+      source: 'document',
+      sourceType: 'api',
+      title: 'Collaborator note',
+      totalCharCount: 4,
+      totalLineCount: 1,
+    });
+
+    await grants.removeUser(kb.id, editorId);
+    await grants.setShareWithAll(kb.id, true, 'view');
+
+    const editorService = new DocumentService(serverDB, editorId);
+    await expect(
+      editorService.updateDocument(note.id, {
+        content: 'still editing',
+        editorData: createValidEditorData('still editing'),
+        saveSource: 'manual',
+      }),
+    ).rejects.toThrow(/Document not found/i);
+
+    expect(await new DocumentModel(serverDB, ownerId).findById(note.id)).toMatchObject({
+      content: 'mine',
+    });
+  });
 });

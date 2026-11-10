@@ -8,6 +8,7 @@ import { t } from 'i18next';
 
 import { EMPTY_EDITOR_STATE } from '@/libs/editor/constants';
 import { isValidEditorData } from '@/libs/editor/isValidEditorData';
+import { normalizeHistoryEditorData } from '@/libs/editor/normalizeHistoryEditorData';
 import { documentService } from '@/services/document';
 import type { StoreSetter } from '@/store/types';
 import { composeSkillMarkdown, parseSkillMarkdownFrontmatter } from '@/utils/skillMarkdown';
@@ -350,10 +351,16 @@ export class EditorActionImpl {
     version: { editorData: unknown; historyId: string },
   ): Promise<void> => {
     const { documents, editor, markDirty, performSave } = this.#get();
+    // History may store `{ root }` or the bare Lexical root node; normalize
+    // before setDocument or the editor throws inside stripNodeIds.
+    const editorData = normalizeHistoryEditorData(version.editorData);
+    if (!editorData) {
+      throw new Error('History version has no restorable editor content');
+    }
 
     if (documents[documentId]?.collab) {
       await documentService.updateDocument({
-        editorData: JSON.stringify(version.editorData),
+        editorData: JSON.stringify(editorData),
         id: documentId,
         restoreFromHistoryId: version.historyId,
         saveSource: 'restore',
@@ -361,7 +368,11 @@ export class EditorActionImpl {
       return;
     }
 
-    editor?.setDocument('json', JSON.stringify(version.editorData));
+    if (!editor) {
+      throw new Error('Editor is not ready');
+    }
+
+    editor.setDocument('json', JSON.stringify(editorData), { keepId: true });
     markDirty(documentId);
     await performSave(documentId, undefined, {
       restoreFromHistoryId: version.historyId,

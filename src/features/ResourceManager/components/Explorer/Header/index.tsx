@@ -8,11 +8,11 @@ import { useTranslation } from 'react-i18next';
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useFileBatchTransferActions } from '@/business/client/hooks/useFileBatchTransferActions';
 import NavHeader from '@/features/NavHeader';
+import { useCanEditLibraryContent } from '@/features/ResourceManager/hooks/useCanEditLibraryContent';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
 import { getExplorerSelectedCount } from '@/features/ResourceManager/store/selectors';
 import { openWorkspaceDeleteAllModal } from '@/features/WorkspaceDeleteAllModal';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { usePermission } from '@/hooks/usePermission';
 import { useFileStore } from '@/store/file';
 
 import AddButton from '../../Header/AddButton';
@@ -51,7 +51,7 @@ const Header = memo(() => {
     s.selectionTotal,
     s.viewMode,
   ]);
-  const { allowed: canEditResources, reason } = usePermission('edit_own_content');
+  const { allowed: canEditResources, reason } = useCanEditLibraryContent();
   const isMobile = useIsMobile();
   const total = useFileStore((s) => s.total);
   const selectCount = getExplorerSelectedCount({

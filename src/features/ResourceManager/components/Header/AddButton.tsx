@@ -13,6 +13,7 @@ import { type ChangeEvent } from 'react';
 import { useCallback, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useCanEditLibraryContent } from '@/features/ResourceManager/hooks/useCanEditLibraryContent';
 import { useCurrentFolderId } from '@/features/ResourceManager/hooks/useCurrentFolderId';
 import { useTopLevelFileUpload } from '@/features/ResourceManager/hooks/useTopLevelFileUpload';
 import { useResourceManagerStore } from '@/features/ResourceManager/store';
@@ -70,7 +71,10 @@ const AddButton = ({ iconOnly, rootLevel }: AddButtonProps = {}) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const urlFolderId = useCurrentFolderId();
   const currentFolderId = rootLevel ? null : urlFolderId;
-  const { allowed: canCreate, reason } = usePermission('create_content');
+  const { allowed: canCreateContent, reason: createReason } = usePermission('create_content');
+  const { allowed: canEditLibrary, reason: editReason } = useCanEditLibraryContent();
+  const canCreate = canCreateContent && canEditLibrary;
+  const reason = canCreateContent ? editReason : createReason;
   const uploadTopLevel = useTopLevelFileUpload({ rootLevel });
 
   // TODO: Migrate Notion import to use createResource

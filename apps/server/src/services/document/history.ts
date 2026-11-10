@@ -1,6 +1,6 @@
 import { buildWorkspaceWhere } from '@lobechat/database';
 import type { DocumentItem } from '@lobechat/database/schemas';
-import { documentHistories, documents } from '@lobechat/database/schemas';
+import { documentHistories, documents, users } from '@lobechat/database/schemas';
 import { and, desc, eq, gte, inArray, lt, or, type SQL } from 'drizzle-orm';
 
 import {
@@ -11,6 +11,7 @@ import {
 import { KnowledgeBaseAccessGrantModel } from '@/database/models/knowledgeBaseAccessGrant';
 import type { LobeChatDatabase } from '@/database/type';
 import { isValidEditorData } from '@/libs/editor/isValidEditorData';
+import { coerceHistoryEditorDocument } from '@/libs/editor/normalizeHistoryEditorData';
 
 import type {
   CompareDocumentHistoryItemsParams,
@@ -230,7 +231,8 @@ export class DocumentHistoryService {
     }
 
     return {
-      editorData: historyRow.editorData as Record<string, any>,
+      // Wrap bare Lexical roots so restore/diff clients always see `{ root }`.
+      editorData: coerceHistoryEditorDocument(historyRow.editorData) as Record<string, any> | null,
       id: historyRow.id,
       isCurrent: false,
       saveSource: historyRow.saveSource as DocumentHistorySaveSource,
@@ -310,6 +312,8 @@ export class DocumentHistoryService {
       items.push(...historyItems);
     }
 
+    await this.attachEditors(items);
+
     const hasMore = historyRows.length === effectiveLimit && historyRows.length > 0;
 
     // Cursor must be based on the last item actually returned, not a dropped row.
@@ -325,6 +329,27 @@ export class DocumentHistoryService {
       nextBeforeId: lastRow?.id,
       nextBeforeSavedAt: lastRow?.savedAt,
     };
+  };
+
+  /** Batch-load display profiles for every attributed editor on the page. */
+  private attachEditors = async (items: DocumentHistoryListItem[]) => {
+    const userIds = [...new Set(items.map((item) => item.userId).filter(Boolean))];
+    if (userIds.length === 0) return;
+
+    const rows = await this.db
+      .select({
+        avatar: users.avatar,
+        fullName: users.fullName,
+        id: users.id,
+        username: users.username,
+      })
+      .from(users)
+      .where(inArray(users.id, userIds));
+
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    for (const item of items) {
+      item.editor = byId.get(item.userId) ?? null;
+    }
   };
 
   private findHeadDocument = async (documentId: string) => {

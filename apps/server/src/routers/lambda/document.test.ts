@@ -55,6 +55,12 @@ vi.mock('./_helpers/knowledgeBaseAccess', () => ({
   assertContentsNotInRestrictedKnowledgeBase: vi.fn(),
   getRestrictedKnowledgeBaseIds: vi.fn(),
 }));
+vi.mock('@/server/services/knowledgeBaseAccess', () => ({
+  assertContentsNotInRestrictedKnowledgeBase: vi.fn(),
+  assertPersonalKnowledgeBaseAccess: vi.fn(),
+  assertPersonalSharedDocumentAccess: vi.fn(),
+  getRestrictedKnowledgeBaseIds: vi.fn().mockResolvedValue([]),
+}));
 const createCaller = createCallerFactory(documentRouter);
 const caller = async () => createCaller(await createContextInner({ userId: 'user-1' }));
 

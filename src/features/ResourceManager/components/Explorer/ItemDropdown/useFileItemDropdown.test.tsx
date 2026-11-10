@@ -55,6 +55,9 @@ vi.mock('@/features/Messenger/PushResourceModal/useSendToMessengerMenuItem', () 
 }));
 vi.mock('@/hooks/useAppOrigin', () => ({ useAppOrigin: () => 'https://app.example.com' }));
 vi.mock('@/hooks/usePermission', () => ({ usePermission: () => ({ allowed: true }) }));
+vi.mock('@/features/ResourceManager/hooks/useCanEditLibraryContent', () => ({
+  useCanEditLibraryContent: () => ({ allowed: true, reason: undefined }),
+}));
 vi.mock('@/features/ResourceManager/components/KnowledgeBaseListProvider', () => ({
   useKnowledgeBaseListContext: () => [],
 }));

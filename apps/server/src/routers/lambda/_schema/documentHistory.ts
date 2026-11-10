@@ -73,8 +73,17 @@ export const saveDocumentHistoryInputSchema = z.object({
   saveSource: documentHistorySaveSourceSchema,
 });
 
+export interface DocumentHistoryEditor {
+  avatar?: string | null;
+  fullName?: string | null;
+  id: string;
+  username?: string | null;
+}
+
 export interface DocumentHistoryListItem {
   agentId?: string | null;
+  /** Profile for `userId`, enriched by the list endpoint. */
+  editor?: DocumentHistoryEditor | null;
   editorIds?: string[] | null;
   id: string;
   isCurrent: boolean;

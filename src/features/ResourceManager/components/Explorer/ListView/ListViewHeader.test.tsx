@@ -46,7 +46,7 @@ describe('ListViewHeader', () => {
   it('matches row column order for created time and uploader', () => {
     render(
       <ListViewHeader
-        columnWidths={{ date: 160, name: 400, size: 140, uploader: 180 }}
+        columnWidths={{ date: 160, name: 400, size: 140, updated: 160, uploader: 180 }}
         data={[]}
         hasMore={false}
       />,
@@ -54,6 +54,7 @@ describe('ListViewHeader', () => {
 
     const title = screen.getByText('FileManager.title.title');
     const createdAt = screen.getByText('FileManager.title.createdAt');
+    const updatedAt = screen.getByText('FileManager.title.updatedAt');
     const uploader = screen.getByText('FileManager.title.uploader');
     const size = screen.getByText('FileManager.title.size');
 
@@ -61,7 +62,10 @@ describe('ListViewHeader', () => {
       title.compareDocumentPosition(createdAt) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      createdAt.compareDocumentPosition(uploader) & Node.DOCUMENT_POSITION_FOLLOWING,
+      createdAt.compareDocumentPosition(updatedAt) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      updatedAt.compareDocumentPosition(uploader) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(uploader.compareDocumentPosition(size) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -69,7 +73,7 @@ describe('ListViewHeader', () => {
   it('hides uploader column when the private resource library is active', () => {
     render(
       <ListViewHeader
-        columnWidths={{ date: 160, name: 400, size: 140, uploader: 180 }}
+        columnWidths={{ date: 160, name: 400, size: 140, updated: 160, uploader: 180 }}
         data={[]}
         hasMore={false}
         showUploader={false}
@@ -78,13 +82,14 @@ describe('ListViewHeader', () => {
 
     expect(screen.queryByText('FileManager.title.uploader')).not.toBeInTheDocument();
     expect(screen.queryByTestId('resize-uploader')).not.toBeInTheDocument();
+    expect(screen.getByText('FileManager.title.updatedAt')).toBeInTheDocument();
     expect(screen.getByText('FileManager.title.size')).toBeInTheDocument();
   });
 
   it('promotes a single-page header selection to the full role-scoped result set', () => {
     render(
       <ListViewHeader
-        columnWidths={{ date: 160, name: 400, size: 140, uploader: 180 }}
+        columnWidths={{ date: 160, name: 400, size: 140, updated: 160, uploader: 180 }}
         data={[{ id: 'file-1' } as any]}
         hasMore={false}
       />,

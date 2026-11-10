@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { useExplorerInfiniteScroll } from './useExplorerInfiniteScroll';
 
-const columnWidths = { date: 100, name: 200, size: 80, uploader: 80 };
+const columnWidths = { date: 100, name: 200, size: 80, updated: 100, uploader: 80 };
 const failedPage = new Error('page 2 failed');
 
 describe('useExplorerInfiniteScroll', () => {

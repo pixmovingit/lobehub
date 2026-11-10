@@ -7,6 +7,7 @@ interface ListViewSkeletonProps {
     date: number;
     name: number;
     size: number;
+    updated: number;
     uploader: number;
   };
   count?: number;
@@ -14,7 +15,13 @@ interface ListViewSkeletonProps {
 }
 
 const ListViewSkeleton = ({
-  columnWidths = { date: FILE_DATE_WIDTH, name: 400, size: FILE_SIZE_WIDTH, uploader: 180 },
+  columnWidths = {
+    date: FILE_DATE_WIDTH,
+    name: 400,
+    size: FILE_SIZE_WIDTH,
+    updated: FILE_DATE_WIDTH,
+    uploader: 180,
+  },
   count = 6,
   showUploader = true,
 }: ListViewSkeletonProps) => {
@@ -55,6 +62,9 @@ const ListViewSkeleton = ({
             <Skeleton height={16} width={'60%'} />
           </Flexbox>
           <Flexbox style={{ flexShrink: 0, paddingInline: '0 24px' }} width={columnWidths.date}>
+            <Skeleton height={16} width={'80%'} />
+          </Flexbox>
+          <Flexbox style={{ flexShrink: 0, paddingInline: '0 24px' }} width={columnWidths.updated}>
             <Skeleton height={16} width={'80%'} />
           </Flexbox>
           {showUploader && (

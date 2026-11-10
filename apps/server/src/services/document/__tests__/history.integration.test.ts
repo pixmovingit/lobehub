@@ -26,7 +26,10 @@ const historyService2 = new DocumentHistoryService(serverDB, userId2);
 
 beforeEach(async () => {
   await serverDB.delete(users);
-  await serverDB.insert(users).values([{ id: userId }, { id: userId2 }]);
+  await serverDB.insert(users).values([
+    { fullName: 'History Owner', id: userId, username: 'history-owner' },
+    { id: userId2, username: 'history-other' },
+  ]);
 });
 
 afterEach(async () => {
@@ -118,7 +121,13 @@ describe('DocumentHistoryService', () => {
       expect(result.items).toHaveLength(3);
       expect(result.items[0].id).toBe('head');
       expect(result.items[0].isCurrent).toBe(true);
+      expect(result.items[0].editor).toMatchObject({
+        fullName: 'History Owner',
+        id: userId,
+        username: 'history-owner',
+      });
       expect(result.items[1].saveSource).toBe('manual');
+      expect(result.items[1].editor?.id).toBe(userId);
       expect(result.items[2].saveSource).toBe('autosave');
     });
 

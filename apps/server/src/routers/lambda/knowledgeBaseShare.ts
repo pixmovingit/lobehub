@@ -95,6 +95,18 @@ export const knowledgeBaseShareRouter = router({
     .mutation(async ({ ctx, input }) => ctx.grantModel.acceptInvite(input.token)),
 
   searchUsers: personalShareProcedure
-    .input(z.object({ query: z.string().min(1).max(200) }))
-    .query(async ({ ctx, input }) => ctx.grantModel.searchShareableUsers(input.query)),
+    .input(
+      z.object({
+        limit: z.number().int().min(1).max(50).optional(),
+        offset: z.number().int().min(0).optional(),
+        query: z.string().max(200).optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) =>
+      ctx.grantModel.listShareableUsers({
+        limit: input.limit,
+        offset: input.offset,
+        query: input.query,
+      }),
+    ),
 });

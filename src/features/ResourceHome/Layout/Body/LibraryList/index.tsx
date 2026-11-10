@@ -90,6 +90,7 @@ const LibraryList = memo(() => {
             accessLevel={item.accessLevel}
             description={item.description}
             id={item.id}
+            isShared={item.isShared}
             key={item.id}
             memberRestricted={(item as { memberRestricted?: boolean }).memberRestricted}
             name={item.name}

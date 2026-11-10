@@ -5,6 +5,9 @@ import { useMemo } from 'react';
 import { PAGE_FILE_TYPE } from '@/features/ResourceManager/constants';
 import { isChunkingSupported } from '@/libs/document-loaders/loaderType';
 
+const formatRelativeOrDate = (value: Date) =>
+  dayjs().diff(dayjs(value), 'd') < 7 ? dayjs(value).fromNow() : dayjs(value).format('YYYY-MM-DD');
+
 interface UseFileListItemMetaOptions {
   createdAt: Date;
   fileType: string;
@@ -13,6 +16,7 @@ interface UseFileListItemMetaOptions {
   } | null;
   name?: string | null;
   sourceType?: string | null;
+  updatedAt: Date;
 }
 
 export const useFileListItemMeta = ({
@@ -21,6 +25,7 @@ export const useFileListItemMeta = ({
   metadata,
   name,
   sourceType,
+  updatedAt,
 }: UseFileListItemMetaOptions) =>
   useMemo(() => {
     const lowerFileType = fileType?.toLowerCase();
@@ -36,10 +41,8 @@ export const useFileListItemMeta = ({
       lowerName?.endsWith('.odt');
 
     return {
-      displayTime:
-        dayjs().diff(dayjs(createdAt), 'd') < 7
-          ? dayjs(createdAt).fromNow()
-          : dayjs(createdAt).format('YYYY-MM-DD'),
+      displayTime: formatRelativeOrDate(createdAt),
+      displayUpdatedTime: formatRelativeOrDate(updatedAt),
       emoji:
         sourceType === DERIVED_DOCUMENT_SOURCE_TYPE || fileType === PAGE_FILE_TYPE
           ? metadata?.emoji
@@ -51,4 +54,4 @@ export const useFileListItemMeta = ({
         (sourceType === DERIVED_DOCUMENT_SOURCE_TYPE || fileType === PAGE_FILE_TYPE),
       isSupportedForChunking: isChunkingSupported({ fileType, name }),
     };
-  }, [createdAt, fileType, metadata?.emoji, name, sourceType]);
+  }, [createdAt, fileType, metadata?.emoji, name, sourceType, updatedAt]);

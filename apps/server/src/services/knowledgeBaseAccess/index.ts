@@ -1,4 +1,5 @@
 import type { KnowledgeBaseGrantAccessLevel } from '@lobechat/types';
+import { knowledgeBaseGrantAccessAtLeast } from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
 import { and, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 
@@ -108,20 +109,24 @@ export const assertPersonalSharedFileAccess = async (
   if (ctx.workspaceId) return;
 
   for (const file of files) {
-    // Own rows stay ownership-gated; missing userId is treated as non-shared.
-    if (!file.userId || file.userId === ctx.userId) continue;
-    const allowed = await KnowledgeBaseAccessGrantModel.canPerformOnFile(
+    const level = await KnowledgeBaseAccessGrantModel.resolveAccessLevelForFile(
       ctx.serverDB,
       file.id,
       ctx.userId,
-      required,
     );
-    if (!allowed) {
-      throw new TRPCError({
-        code: 'FORBIDDEN',
-        message: `You need ${required} access to modify this file`,
-      });
+
+    if (level) {
+      if (level === 'owner') continue;
+      if (knowledgeBaseGrantAccessAtLeast(level, required)) continue;
+    } else if (!file.userId || file.userId === ctx.userId) {
+      // Outside a personal-share library, own rows stay ownership-gated.
+      continue;
     }
+
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: `You need ${required} access to modify this file`,
+    });
   }
 };
 
@@ -133,20 +138,26 @@ export const assertPersonalSharedDocumentAccess = async (
   if (ctx.workspaceId) return;
 
   for (const doc of docs) {
-    // Own rows stay ownership-gated; missing userId is treated as non-shared.
-    if (!doc.userId || doc.userId === ctx.userId) continue;
-    const allowed = await KnowledgeBaseAccessGrantModel.canPerformOnDocument(
+    const level = await KnowledgeBaseAccessGrantModel.resolveAccessLevelForDocument(
       ctx.serverDB,
       doc.id,
       ctx.userId,
-      required,
     );
-    if (!allowed) {
-      throw new TRPCError({
-        code: 'FORBIDDEN',
-        message: `You need ${required} access to modify this document`,
-      });
+
+    if (level) {
+      // Inside a personal library the grant grade wins — including for rows the
+      // caller created earlier while they still had a higher grant.
+      if (level === 'owner') continue;
+      if (knowledgeBaseGrantAccessAtLeast(level, required)) continue;
+    } else if (!doc.userId || doc.userId === ctx.userId) {
+      // Outside a personal-share library, own rows stay ownership-gated.
+      continue;
     }
+
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: `You need ${required} access to modify this document`,
+    });
   }
 };
 

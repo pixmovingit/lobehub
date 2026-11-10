@@ -99,6 +99,7 @@ export default {
   'FileManager.title.createdAt': 'Created At',
   'FileManager.title.size': 'Size',
   'FileManager.title.title': 'File',
+  'FileManager.title.updatedAt': 'Updated At',
   'FileManager.title.uploader': 'Uploader',
   'FileManager.total.allSelectedCount': 'All {{count}} items are selected.',
   'FileManager.total.allSelectedFallback': 'All results are selected.',

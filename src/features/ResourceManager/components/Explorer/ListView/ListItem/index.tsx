@@ -143,6 +143,7 @@ interface FileListItemProps extends FileListItemType {
     date: number;
     name: number;
     size: number;
+    updated: number;
     uploader: number;
   };
   index: number;
@@ -175,6 +176,7 @@ const FileListItem = ({
   showUploader = true,
   size,
   sourceType,
+  updatedAt,
   uploader,
   url,
   userId,
@@ -208,13 +210,15 @@ const FileListItem = ({
   );
   const isSelected = selected ?? resourceManagerState.selected;
 
-  const { displayTime, emoji, isFolder, isPage, isSupportedForChunking } = useFileListItemMeta({
-    createdAt,
-    fileType,
-    metadata,
-    name,
-    sourceType,
-  });
+  const { displayTime, displayUpdatedTime, emoji, isFolder, isPage, isSupportedForChunking } =
+    useFileListItemMeta({
+      createdAt,
+      fileType,
+      metadata,
+      name,
+      sourceType,
+      updatedAt,
+    });
 
   // Personal mode has no second audience, so `visibility` carries no meaning
   // there and every row would wear a lock for nothing.
@@ -432,6 +436,16 @@ const FileListItem = ({
               width={columnWidths.date}
             >
               <span>{displayTime}</span>
+            </Flexbox>
+            <Flexbox
+              horizontal
+              align={'center'}
+              className={styles.item}
+              gap={8}
+              style={{ flexShrink: 0 }}
+              width={columnWidths.updated}
+            >
+              <span>{displayUpdatedTime}</span>
             </Flexbox>
             {showUploader && (
               <Flexbox

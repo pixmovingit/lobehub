@@ -67,13 +67,18 @@ describe('DocumentStore versions', () => {
 
   it('restores a room page on the server only, so the room gets it once', async () => {
     seed(true);
+    const editorData = {
+      root: {
+        children: [{ children: [], type: 'paragraph', version: 1 }],
+        type: 'root',
+        version: 1,
+      },
+    };
 
-    await useDocumentStore
-      .getState()
-      .restoreVersion('doc-1', { editorData: { root: {} }, historyId: 'h1' });
+    await useDocumentStore.getState().restoreVersion('doc-1', { editorData, historyId: 'h1' });
 
     expect(documentService.updateDocument).toHaveBeenCalledWith({
-      editorData: JSON.stringify({ root: {} }),
+      editorData: JSON.stringify(editorData),
       id: 'doc-1',
       restoreFromHistoryId: 'h1',
       saveSource: 'restore',
@@ -86,15 +91,55 @@ describe('DocumentStore versions', () => {
     const performSave = vi
       .spyOn(useDocumentStore.getState(), 'performSave')
       .mockResolvedValue(undefined);
+    const editorData = {
+      root: {
+        children: [{ children: [], type: 'paragraph', version: 1 }],
+        type: 'root',
+        version: 1,
+      },
+    };
 
-    await useDocumentStore
-      .getState()
-      .restoreVersion('doc-1', { editorData: { root: {} }, historyId: 'h1' });
+    await useDocumentStore.getState().restoreVersion('doc-1', { editorData, historyId: 'h1' });
 
-    expect(editor.setDocument).toHaveBeenCalledWith('json', JSON.stringify({ root: {} }));
+    expect(editor.setDocument).toHaveBeenCalledWith('json', JSON.stringify(editorData), {
+      keepId: true,
+    });
     expect(performSave).toHaveBeenCalledWith('doc-1', undefined, {
       restoreFromHistoryId: 'h1',
       saveSource: 'restore',
     });
+  });
+
+  it('wraps a bare Lexical root before restoring a stored page', async () => {
+    seed(false);
+    const performSave = vi
+      .spyOn(useDocumentStore.getState(), 'performSave')
+      .mockResolvedValue(undefined);
+    const root = {
+      children: [{ children: [], type: 'paragraph', version: 1 }],
+      type: 'root',
+      version: 1,
+    };
+
+    await useDocumentStore
+      .getState()
+      .restoreVersion('doc-1', { editorData: root, historyId: 'h1' });
+
+    expect(editor.setDocument).toHaveBeenCalledWith('json', JSON.stringify({ root }), {
+      keepId: true,
+    });
+    expect(performSave).toHaveBeenCalledWith('doc-1', undefined, {
+      restoreFromHistoryId: 'h1',
+      saveSource: 'restore',
+    });
+  });
+
+  it('rejects history payloads the editor cannot load', async () => {
+    seed(false);
+
+    await expect(
+      useDocumentStore.getState().restoreVersion('doc-1', { editorData: {}, historyId: 'h1' }),
+    ).rejects.toThrow(/no restorable editor content/);
+    expect(editor.setDocument).not.toHaveBeenCalled();
   });
 });

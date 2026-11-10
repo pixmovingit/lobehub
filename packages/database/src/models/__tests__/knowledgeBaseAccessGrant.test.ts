@@ -168,13 +168,31 @@ describe('KnowledgeBaseAccessGrantModel', () => {
     expect(ownedOnly).toBeUndefined();
   });
 
-  it('searches shareable users by email without returning the caller', async () => {
+  it('pages shareable users and filters by email without returning the caller', async () => {
     const grants = new KnowledgeBaseAccessGrantModel(serverDB, ownerId);
-    const byEmail = await grants.searchShareableUsers('grantee@example.com');
-    expect(byEmail.map((u) => u.id)).toEqual([granteeId]);
 
-    const self = await grants.searchShareableUsers('owner@example.com');
-    expect(self).toEqual([]);
+    const firstPage = await grants.listShareableUsers({ limit: 1, offset: 0 });
+    expect(firstPage.items).toHaveLength(1);
+    expect(firstPage.hasMore).toBe(true);
+    expect(firstPage.items[0]?.id).not.toBe(ownerId);
+
+    const secondPage = await grants.listShareableUsers({
+      limit: 1,
+      offset: firstPage.nextOffset,
+    });
+    expect(secondPage.items).toHaveLength(1);
+    expect(secondPage.items[0]?.id).not.toBe(firstPage.items[0]?.id);
+    expect(secondPage.items[0]?.id).not.toBe(ownerId);
+
+    const byEmail = await grants.listShareableUsers({ query: 'grantee@example.com' });
+    expect(byEmail.items.map((u) => u.id)).toEqual([granteeId]);
+    expect(byEmail.hasMore).toBe(false);
+
+    const bySingleChar = await grants.listShareableUsers({ query: 'g' });
+    expect(bySingleChar.items.map((u) => u.id)).toContain(granteeId);
+
+    const self = await grants.listShareableUsers({ query: 'owner@example.com' });
+    expect(self.items).toEqual([]);
   });
 
   it('removes a user grant so the library disappears from their list', async () => {
@@ -186,6 +204,47 @@ describe('KnowledgeBaseAccessGrantModel', () => {
     expect(await KnowledgeBaseAccessGrantModel.canBrowse(serverDB, kb.id, granteeId)).toBe(false);
     const list = await new KnowledgeBaseModel(serverDB, granteeId).query();
     expect(list.map((item) => item.id)).not.toContain(kb.id);
+  });
+
+  it('denies mutation on a personal library after demotion to view-only', async () => {
+    const kb = await createPersonalKb(ownerId);
+    const grants = new KnowledgeBaseAccessGrantModel(serverDB, ownerId);
+    await grants.addUsers(kb.id, [granteeId], 'edit');
+    await grants.removeUser(kb.id, granteeId);
+    await grants.setShareWithAll(kb.id, true, 'view');
+
+    await serverDB.insert(documents).values([
+      {
+        content: 'x',
+        fileType: 'custom/document',
+        filename: 'doc',
+        id: 'demoted-doc',
+        knowledgeBaseId: kb.id,
+        source: 'document',
+        sourceType: 'api',
+        title: 'Doc',
+        totalCharCount: 1,
+        totalLineCount: 1,
+        userId: granteeId,
+      },
+    ]);
+
+    expect(
+      await KnowledgeBaseAccessGrantModel.personalLibraryAllowsMutation(
+        serverDB,
+        granteeId,
+        'edit',
+        { documentId: 'demoted-doc' },
+      ),
+    ).toBe(false);
+    expect(
+      await KnowledgeBaseAccessGrantModel.canPerformOnDocument(
+        serverDB,
+        'demoted-doc',
+        granteeId,
+        'view',
+      ),
+    ).toBe(true);
   });
 
   it('resolves content-level access for files and documents in a granted library', async () => {

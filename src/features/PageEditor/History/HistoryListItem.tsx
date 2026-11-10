@@ -8,11 +8,15 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useAuthorInfo } from '@/business/client/hooks/useAuthorInfo';
+import UserAvatar from '@/components/UserAvatar';
 import { useEventCallback } from '@/hooks/useEventCallback';
 import type { DocumentHistorySaveSource } from '@/server/routers/lambda/_schema/documentHistory';
+import { useUserStore } from '@/store/user';
+import { userProfileSelectors } from '@/store/user/selectors';
 
 import { formatHistoryAbsoluteTime, formatHistoryRowTime } from './formatHistoryDate';
 import { historyItemSelectors, useHistoryItemsStore } from './HistoryItemsProvider';
+import { resolveHistoryEditorName } from './resolveHistoryEditorName';
 
 type TagColor = 'default' | 'success' | 'purple' | 'geekblue' | 'gold' | 'processing';
 
@@ -140,6 +144,7 @@ export const HistoryListItem = memo<HistoryListItemProps>(({ historyId, onCompar
   const item = useHistoryItemsStore(historyItemSelectors.itemById(historyId));
   const isRestoring = useHistoryItemsStore(historyItemSelectors.isRestoring(historyId));
   const authorInfo = useAuthorInfo(item?.userId);
+  const currentUserId = useUserStore(userProfileSelectors.userId);
 
   const handleCompare = useEventCallback(() => {
     onCompare(historyId);
@@ -157,6 +162,13 @@ export const HistoryListItem = memo<HistoryListItemProps>(({ historyId, onCompar
 
   const timeLabel = formatHistoryRowTime(item.savedAt);
   const saveSourceLabel = t(`pageEditor.history.saveSource.${item.saveSource}`, { ns: 'file' });
+  const editorName = resolveHistoryEditorName({
+    currentUserId,
+    editor: item.editor,
+    fallbackFullName: authorInfo?.fullName,
+    userId: item.userId,
+    youLabel: t('pageEditor.history.editorYou', { ns: 'file' }),
+  });
 
   return (
     <div
@@ -169,10 +181,19 @@ export const HistoryListItem = memo<HistoryListItemProps>(({ historyId, onCompar
             {timeLabel}
           </span>
         </Tooltip>
-        <span className={styles.description}>
-          {authorInfo?.fullName ? `${authorInfo.fullName} · ` : ''}
-          {dayjs(item.savedAt).fromNow()}
-        </span>
+        <Flexbox horizontal align={'center'} className={styles.description} gap={6}>
+          {item.editor || editorName ? (
+            <UserAvatar
+              avatar={item.editor?.avatar || authorInfo?.avatar || undefined}
+              name={editorName || item.userId}
+              size={14}
+            />
+          ) : null}
+          <span>
+            {editorName ? `${editorName} · ` : ''}
+            {dayjs(item.savedAt).fromNow()}
+          </span>
+        </Flexbox>
       </Flexbox>
 
       <div className={styles.rowRight}>

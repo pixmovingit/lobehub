@@ -45,7 +45,8 @@ class KnowledgeBaseShareService {
 
   acceptInvite = (token: string) => lambdaClient.knowledgeBaseShare.acceptInvite.mutate({ token });
 
-  searchUsers = (query: string) => lambdaClient.knowledgeBaseShare.searchUsers.query({ query });
+  searchUsers = (params: { limit?: number; offset?: number; query?: string } = {}) =>
+    lambdaClient.knowledgeBaseShare.searchUsers.query(params);
 }
 
 export const knowledgeBaseShareService = new KnowledgeBaseShareService();

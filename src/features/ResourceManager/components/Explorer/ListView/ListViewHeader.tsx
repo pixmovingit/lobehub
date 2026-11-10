@@ -19,6 +19,7 @@ interface ListViewHeaderProps {
     date: number;
     name: number;
     size: number;
+    updated: number;
     uploader: number;
   };
   data: FileListItem[];
@@ -134,6 +135,21 @@ const ListViewHeader = ({
             maxWidth={300}
             minWidth={120}
             onResize={(width) => updateColumnWidth('date', width)}
+          />
+        </Flexbox>
+        <Flexbox
+          className={styles.headerItem}
+          justify={'center'}
+          style={{ flexShrink: 0, paddingInlineEnd: 16, position: 'relative' }}
+          width={columnWidths.updated}
+        >
+          {t('FileManager.title.updatedAt')}
+          <ColumnResizeHandle
+            column="updated"
+            currentWidth={columnWidths.updated}
+            maxWidth={300}
+            minWidth={120}
+            onResize={(width) => updateColumnWidth('updated', width)}
           />
         </Flexbox>
         {showUploader && (

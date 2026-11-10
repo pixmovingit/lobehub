@@ -6,12 +6,16 @@ import { memo, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useAuthorInfo } from '@/business/client/hooks/useAuthorInfo';
+import UserAvatar from '@/components/UserAvatar';
 import type {
   DocumentHistoryListItem,
   DocumentHistorySaveSource,
 } from '@/server/routers/lambda/_schema/documentHistory';
+import { useUserStore } from '@/store/user';
+import { userProfileSelectors } from '@/store/user/selectors';
 
 import { formatHistoryRowTime } from '../formatHistoryDate';
+import { resolveHistoryEditorName } from '../resolveHistoryEditorName';
 
 const styles = createStaticStyles(({ css }) => ({
   container: css`
@@ -173,7 +177,15 @@ const HistorySidebarRow = memo<HistorySidebarRowProps>(
   ({ item, isSelected, onSelect, saveSourceLabels }) => {
     const { t } = useTranslation('file');
     const authorInfo = useAuthorInfo(item.userId);
+    const currentUserId = useUserStore(userProfileSelectors.userId);
     const disabled = item.isCurrent;
+    const editorName = resolveHistoryEditorName({
+      currentUserId,
+      editor: item.editor,
+      fallbackFullName: authorInfo?.fullName,
+      userId: item.userId,
+      youLabel: t('pageEditor.history.editorYou'),
+    });
 
     return (
       <div className={styles.row}>
@@ -205,10 +217,19 @@ const HistorySidebarRow = memo<HistorySidebarRowProps>(
               )}
               <span className={styles.source}>{saveSourceLabels[item.saveSource]}</span>
             </Flexbox>
-            <Text className={styles.meta} type={'secondary'}>
-              {authorInfo?.fullName ? `${authorInfo.fullName} · ` : ''}
-              {dayjs(item.savedAt).fromNow()}
-            </Text>
+            <Flexbox horizontal align={'center'} gap={6}>
+              {item.editor || editorName ? (
+                <UserAvatar
+                  avatar={item.editor?.avatar || authorInfo?.avatar || undefined}
+                  name={editorName || item.userId}
+                  size={14}
+                />
+              ) : null}
+              <Text className={styles.meta} type={'secondary'}>
+                {editorName ? `${editorName} · ` : ''}
+                {dayjs(item.savedAt).fromNow()}
+              </Text>
+            </Flexbox>
           </Flexbox>
         </div>
       </div>
