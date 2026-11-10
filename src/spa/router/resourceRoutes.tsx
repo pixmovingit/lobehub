@@ -167,6 +167,22 @@ export const resourceRoute: RouteObject = {
       ),
       handle: { meta: routeMeta({ Skeleton: ResourceCategorySkeleton }) },
     },
+    // Personal KB invite accept — registered before `library/:id` so `share`
+    // is not captured as a knowledge-base id.
+    {
+      element: dynamicElement(
+        () => import('@/routes/(main)/resource/library/share/accept'),
+        'Desktop > Resource > Library > Share Accept',
+      ),
+      handle: {
+        meta: routeMeta({
+          icon: LibraryBigIcon,
+          Skeleton: createSurfaceSkeleton('form'),
+          titleKey: 'navigation.resources',
+        }),
+      },
+      path: 'library/share/accept',
+    },
     // Library routes (knowledge base detail)
     {
       children: [
@@ -190,6 +206,19 @@ export const resourceRoute: RouteObject = {
             }),
           },
           path: 'permission',
+        },
+        {
+          element: dynamicElement(
+            () => import('@/routes/(main)/resource/library/share'),
+            'Desktop > Resource > Library > Share',
+          ),
+          handle: {
+            meta: createLibraryRouteMeta({
+              icon: LibraryBigIcon,
+              Skeleton: createSurfaceSkeleton('form'),
+            }),
+          },
+          path: 'share',
         },
         // A folder (`folder/<docs_id>`), page (`docs/<docs_id>`) or file
         // (`file/<file_id>`) opened inside the library, all addressed by id.

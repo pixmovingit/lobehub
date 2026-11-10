@@ -24,6 +24,7 @@ import { publicProcedure, router } from '@/libs/trpc/lambda';
 
 import { acceptanceRouter } from './acceptance';
 import { acceptanceCommentRouter } from './acceptanceComment';
+import { adminRouter } from './admin';
 import { agentRouter } from './agent';
 import { agentAccountRouter } from './agentAccount';
 import { agentBotProviderRouter } from './agentBotProvider';
@@ -80,6 +81,7 @@ import { importerRouter } from './importer';
 import { klavisRouter } from './klavis';
 import { knowledgeRouter } from './knowledge';
 import { knowledgeBaseRouter } from './knowledgeBase';
+import { knowledgeBaseShareRouter } from './knowledgeBaseShare';
 import { linearRouter } from './linear';
 import { llmGenerationTracingRouter } from './llmGenerationTracing';
 import { marketRouter } from './market';
@@ -114,7 +116,6 @@ import { topicRouter } from './topic';
 import { topicCommentRouter } from './topicComment';
 import { trashRouter } from './trash';
 import { ttsRouter } from './tts';
-import { adminRouter } from './admin';
 import { uploadRouter } from './upload';
 import { usageRouter } from './usage';
 import { userRouter } from './user';
@@ -192,6 +193,7 @@ export const lambdaRouter = router({
   klavis: klavisRouter,
   knowledge: knowledgeRouter,
   knowledgeBase: knowledgeBaseRouter,
+  knowledgeBaseShare: knowledgeBaseShareRouter,
   linear: linearRouter,
   llmGenerationTracing: llmGenerationTracingRouter,
   market: marketRouter,

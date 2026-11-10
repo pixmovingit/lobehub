@@ -16,6 +16,12 @@ import { KnowledgeBaseSearchService } from './index';
 vi.mock('@/database/models/chunk', () => ({ ChunkModel: vi.fn() }));
 vi.mock('@/database/models/document', () => ({ DocumentModel: vi.fn() }));
 vi.mock('@/database/models/file', () => ({ FileModel: vi.fn() }));
+vi.mock('@/database/models/knowledgeBaseAccessGrant', () => ({
+  KnowledgeBaseAccessGrantModel: {
+    listGrantedKnowledgeBaseIds: vi.fn().mockResolvedValue([]),
+    resolveAccess: vi.fn().mockResolvedValue(null),
+  },
+}));
 vi.mock('@/server/services/ftsSearch', () => ({ createFtsSearchRepo: vi.fn() }));
 vi.mock('../document', () => ({ DocumentService: vi.fn() }));
 vi.mock('@/server/globalConfig', () => ({ getServerDefaultFilesConfig: vi.fn() }));

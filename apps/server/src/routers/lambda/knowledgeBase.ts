@@ -1,4 +1,5 @@
 import { TRPCError } from '@trpc/server';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { businessFileTransferStorageCheck } from '@/business/server/lambda-routers/file';
@@ -8,9 +9,14 @@ import { serverDBEnv } from '@/config/db';
 import { DocumentModel } from '@/database/models/document';
 import { FileModel } from '@/database/models/file';
 import { KnowledgeBaseModel } from '@/database/models/knowledgeBase';
+import { KnowledgeBaseAccessGrantModel } from '@/database/models/knowledgeBaseAccessGrant';
 import { ResourcePermissionModel } from '@/database/models/resourcePermission';
 import { AgentSpaceRepository } from '@/database/repositories/agentSpace';
-import { DEDICATED_KNOWLEDGE_BASE_TYPES, DEFAULT_RESOURCE_ACCESS_LEVELS } from '@/database/schemas';
+import {
+  DEDICATED_KNOWLEDGE_BASE_TYPES,
+  DEFAULT_RESOURCE_ACCESS_LEVELS,
+  users,
+} from '@/database/schemas';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { getServerFeatureFlagsStateFromRuntimeConfig } from '@/server/featureFlags';
@@ -19,7 +25,7 @@ import {
   getWorkspaceScopedPermissionMatches,
   hasWorkspaceScopedPermission,
 } from '@/server/services/workspacePermission';
-import { type KnowledgeBaseItem } from '@/types/knowledgeBase';
+import { type KnowledgeBaseItem, type KnowledgeBaseOwner } from '@/types/knowledgeBase';
 import { TransferErrorCode } from '@/types/transferError';
 
 import {
@@ -29,6 +35,7 @@ import {
 import {
   assertContentsNotInRestrictedKnowledgeBase,
   assertKnowledgeBaseBrowsable,
+  assertPersonalKnowledgeBaseAccess,
   filterRestrictedKnowledgeBases,
   getUseLevelKnowledgeBaseIds,
 } from './_helpers/knowledgeBaseAccess';
@@ -119,13 +126,19 @@ export const knowledgeBaseRouter = router({
     .use(withScopedPermission('knowledge_base:update'))
     .input(z.object({ ids: z.array(z.string()), knowledgeBaseId: z.string() }))
     .mutation(async ({ input, ctx }) => {
-      const kb = await ctx.knowledgeBaseModel.findById(input.knowledgeBaseId);
+      const kb =
+        (await ctx.knowledgeBaseModel.findById(input.knowledgeBaseId)) ??
+        (await ctx.knowledgeBaseModel.findAccessibleById(input.knowledgeBaseId));
       if (!kb) throw new TRPCError({ code: 'NOT_FOUND', message: 'Knowledge base not found' });
-      await assertKnowledgeBaseBrowsable(ctx, input.knowledgeBaseId, {
-        userId: kb.userId,
-        visibility: kb.visibility ?? null,
-        workspaceId: kb.workspaceId ?? null,
-      });
+      if (ctx.workspaceId) {
+        await assertKnowledgeBaseBrowsable(ctx, input.knowledgeBaseId, {
+          userId: kb.userId,
+          visibility: kb.visibility ?? null,
+          workspaceId: kb.workspaceId ?? null,
+        });
+      } else {
+        await assertPersonalKnowledgeBaseAccess(ctx, input.knowledgeBaseId, 'edit');
+      }
       // A library is a directory of references, not a container that makes its
       // contents uniform: who can see a row is decided by the row's own
       // `visibility`, which is what every listing already filters on. This
@@ -230,18 +243,53 @@ export const knowledgeBaseRouter = router({
   getKnowledgeBaseById: knowledgeBaseProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }): Promise<KnowledgeBaseItem | undefined> => {
-      const kb = await ctx.knowledgeBaseModel.findById(input.id);
+      const kb = await ctx.knowledgeBaseModel.findAccessibleById(input.id);
       if (!kb) return kb;
 
       // Restricted KBs (resource-permission `use` level) stay mountable but
-      // their detail/content view is manager-only.
+      // their detail/content view is manager-only. Personal grants are checked
+      // inside assertKnowledgeBaseBrowsable as well.
       await assertKnowledgeBaseBrowsable(ctx, input.id, {
         userId: kb.userId,
         visibility: kb.visibility ?? null,
         workspaceId: kb.workspaceId ?? null,
       });
 
-      return kb;
+      const [ownerRow] = kb.userId
+        ? await ctx.serverDB
+            .select({
+              avatar: users.avatar,
+              fullName: users.fullName,
+              id: users.id,
+              username: users.username,
+            })
+            .from(users)
+            .where(eq(users.id, kb.userId))
+            .limit(1)
+        : [undefined];
+      const owner: KnowledgeBaseOwner | undefined = ownerRow;
+
+      if (ctx.workspaceId) {
+        return {
+          ...kb,
+          isShared: kb.visibility === 'public',
+          owner,
+        } as KnowledgeBaseItem;
+      }
+
+      const [accessLevel, accessType, isShared] = await Promise.all([
+        KnowledgeBaseAccessGrantModel.resolveAccessLevel(ctx.serverDB, input.id, ctx.userId),
+        KnowledgeBaseAccessGrantModel.resolveAccess(ctx.serverDB, input.id, ctx.userId),
+        KnowledgeBaseAccessGrantModel.hasAnyGrant(ctx.serverDB, input.id),
+      ]);
+
+      return {
+        ...kb,
+        accessLevel: accessLevel ?? undefined,
+        accessType: accessType ?? undefined,
+        isShared,
+        owner,
+      } as KnowledgeBaseItem;
     }),
 
   getKnowledgeBases: knowledgeBaseProcedure
@@ -265,10 +313,22 @@ export const knowledgeBaseRouter = router({
         // agent knowledge picker lists them through `agent.getKnowledgeBasesAndFiles`.
         const visible = await filterRestrictedKnowledgeBases(ctx, list);
 
+        // Personal list: mark which libraries already have share grants so the
+        // gallery can show 私有 / 共享 without a per-card detail fetch.
+        if (!ctx.workspaceId) {
+          const sharedIds = await KnowledgeBaseAccessGrantModel.knowledgeBaseIdsWithGrants(
+            ctx.serverDB,
+            visible.map((kb) => kb.id),
+          );
+          return visible.map((kb) => ({
+            ...kb,
+            isShared: sharedIds.has(kb.id),
+          }));
+        }
+
         // Managers keep seeing restricted KBs — flag them (and who may manage
         // permissions) so the client renders the lock badge and the
         // permission-page entry without a per-row permission request.
-        if (!ctx.workspaceId) return visible;
         const [useLevelIds, { hasAllScope }] = await Promise.all([
           getUseLevelKnowledgeBaseIds(ctx.serverDB, ctx.workspaceId),
           getWorkspaceScopedPermissionMatches({
@@ -281,6 +341,7 @@ export const knowledgeBaseRouter = router({
         const useLevelSet = new Set(useLevelIds);
         return visible.map((kb) => ({
           ...kb,
+          isShared: kb.visibility === 'public',
           memberRestricted: useLevelSet.has(kb.id),
           permissionManageable: hasAllScope || kb.userId === ctx.userId,
         }));
@@ -379,13 +440,19 @@ export const knowledgeBaseRouter = router({
     .use(withScopedPermission('knowledge_base:update'))
     .input(z.object({ ids: z.array(z.string()), knowledgeBaseId: z.string() }))
     .mutation(async ({ input, ctx }) => {
-      const kb = await ctx.knowledgeBaseModel.findById(input.knowledgeBaseId);
+      const kb =
+        (await ctx.knowledgeBaseModel.findById(input.knowledgeBaseId)) ??
+        (await ctx.knowledgeBaseModel.findAccessibleById(input.knowledgeBaseId));
       if (!kb) throw new TRPCError({ code: 'NOT_FOUND', message: 'Knowledge base not found' });
-      await assertKnowledgeBaseBrowsable(ctx, input.knowledgeBaseId, {
-        userId: kb.userId,
-        visibility: kb.visibility ?? null,
-        workspaceId: kb.workspaceId ?? null,
-      });
+      if (ctx.workspaceId) {
+        await assertKnowledgeBaseBrowsable(ctx, input.knowledgeBaseId, {
+          userId: kb.userId,
+          visibility: kb.visibility ?? null,
+          workspaceId: kb.workspaceId ?? null,
+        });
+      } else {
+        await assertPersonalKnowledgeBaseAccess(ctx, input.knowledgeBaseId, 'delete');
+      }
       await assertKnowledgeItemsAccessible(ctx, input.ids);
 
       return ctx.knowledgeBaseModel.removeFilesFromKnowledgeBase(input.knowledgeBaseId, input.ids);
@@ -534,13 +601,19 @@ export const knowledgeBaseRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      const existing = await ctx.knowledgeBaseModel.findById(input.id);
+      const existing =
+        (await ctx.knowledgeBaseModel.findById(input.id)) ??
+        (await ctx.knowledgeBaseModel.findAccessibleById(input.id));
       if (!existing) return;
-      await assertKnowledgeBaseBrowsable(ctx, input.id, {
-        userId: existing.userId,
-        visibility: existing.visibility ?? null,
-        workspaceId: existing.workspaceId ?? null,
-      });
+      if (ctx.workspaceId) {
+        await assertKnowledgeBaseBrowsable(ctx, input.id, {
+          userId: existing.userId,
+          visibility: existing.visibility ?? null,
+          workspaceId: existing.workspaceId ?? null,
+        });
+      } else {
+        await assertPersonalKnowledgeBaseAccess(ctx, input.id, 'full');
+      }
 
       const { cover, ...value } = input.value;
       return ctx.knowledgeBaseModel.update(

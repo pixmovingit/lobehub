@@ -1,4 +1,7 @@
 import type { FilesConfigItem } from '../user/settings/filesConfig';
+import type { KnowledgeBaseGrantAccessLevel, KnowledgeBasePersonalAccessType } from './share';
+
+export * from './share';
 
 export enum KnowledgeBaseTabs {
   Files = 'files',
@@ -6,7 +9,26 @@ export enum KnowledgeBaseTabs {
   Testing = 'testing',
 }
 
+export interface KnowledgeBaseOwner {
+  avatar?: string | null;
+  fullName?: string | null;
+  id: string;
+  username?: string | null;
+}
+
 export interface KnowledgeBaseItem {
+  /**
+   * Effective personal-share level for the caller.
+   * Owners are `'owner'`; grantees get `view` / `edit` / `delete` / `full`
+   * (`full` also manages sharing). Workspace listings keep using
+   * `memberRestricted` / resource permissions.
+   */
+  accessLevel?: KnowledgeBaseGrantAccessLevel | 'owner';
+  /**
+   * Personal-space grant kind when the caller is not the owner.
+   * Workspace listings keep using `memberRestricted` / resource permissions.
+   */
+  accessType?: KnowledgeBasePersonalAccessType;
   avatar: string | null;
 
   createdAt: Date;
@@ -16,8 +38,16 @@ export interface KnowledgeBaseItem {
   id: string;
 
   isPublic: boolean | null;
+  /**
+   * Whether others can reach this library: any personal-share grant, or
+   * workspace `visibility === 'public'`. Used for the hero "私有 / 共享" chip.
+   */
+  isShared?: boolean;
 
   name: string;
+
+  /** Creator profile for the library hero meta row. */
+  owner?: KnowledgeBaseOwner;
 
   settings: any;
   // different types of knowledge bases need to be distinguished

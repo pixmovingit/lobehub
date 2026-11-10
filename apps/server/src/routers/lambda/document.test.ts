@@ -297,12 +297,13 @@ describe('Markdown writes drop the heading that repeats the title', () => {
 
   it('keeps an editor save, which sends its own editorData, as written', async () => {
     const editorData = { root: { children: [{ type: 'heading' }], type: 'root' } };
+    // Personal mode still loads the row once for share-grant checks.
+    mocks.findDocumentById.mockResolvedValue({ id: 'doc-1', userId: 'user-1' });
 
     await (
       await caller()
     ).updateDocument({ content, editorData: JSON.stringify(editorData), id: 'doc-1' });
 
-    expect(mocks.findDocumentById).not.toHaveBeenCalled();
     expect(mocks.updateDocument).toHaveBeenCalledWith(
       'doc-1',
       expect.objectContaining({ content, editorData }),

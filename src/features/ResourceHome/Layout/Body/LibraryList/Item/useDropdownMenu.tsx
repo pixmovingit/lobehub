@@ -17,6 +17,11 @@ import { useUserStore } from '@/store/user';
 import { userProfileSelectors } from '@/store/user/selectors';
 
 interface ActionProps {
+  /**
+   * Personal-share effective level for the caller (`owner` / `full` / …).
+   * Used outside a workspace to decide who may open the Share page.
+   */
+  accessLevel?: 'owner' | 'view' | 'edit' | 'delete' | 'full';
   description?: string | null;
   id: string;
   name: string;
@@ -28,6 +33,7 @@ interface ActionProps {
 }
 
 export const useDropdownMenu = ({
+  accessLevel,
   id,
   name,
   description,
@@ -51,37 +57,56 @@ export const useDropdownMenu = ({
   const canManage = useResourceManageable(userId);
   const transferMenuItems = useKnowledgeBaseTransferMenuItem(id);
   const currentUserId = useUserStore(userProfileSelectors.userId);
-  // Only the creator of a still-private KB sees the "Publish to workspace" entry.
-  // Mirrors the file / agent / task one-way publish pattern.
-  const isOwnPrivateKb =
-    visibility === 'private' && !!currentUserId && !!userId && userId === currentUserId;
-  // Bidirectional counterpart: workspace-public KBs owned by the caller can be
-  // pulled back to private via the same guarded server path.
-  const isOwnPublicKb =
-    visibility === 'public' && !!currentUserId && !!userId && userId === currentUserId;
-
-  // Member Permissions entry: navigates to the standalone permission page,
-  // same as Agent. Private KBs are included — the creator configures what
-  // members get the moment the KB is published. The manage flag rides the
-  // list payload (creator or `KNOWLEDGE_BASE_UPDATE:all` curators), so no
-  // per-row permission request is issued while rendering the sidebar.
+  // Member Permissions (workspace) or personal Share entry. Workspace keeps
+  // the existing permission page; personal mode opens the OSS share page for
+  // the creator so grants / invite links can be managed without a workspace.
   const activeWorkspaceId = useActiveWorkspaceId();
+  // Workspace visibility (`public` / `private`) is meaningless in personal
+  // mode — rows still default to `visibility: 'public'`, which used to surface
+  // "改为私有" and then fail with BAD_REQUEST on the server. Gate both entries
+  // on an active workspace so personal libraries only expose Share.
+  const isOwnPrivateKb =
+    !!activeWorkspaceId &&
+    visibility === 'private' &&
+    !!currentUserId &&
+    !!userId &&
+    userId === currentUserId;
+  const isOwnPublicKb =
+    !!activeWorkspaceId &&
+    visibility === 'public' &&
+    !!currentUserId &&
+    !!userId &&
+    userId === currentUserId;
   const wsNavigate = useWorkspaceAwareNavigate();
-  const memberPermissionMenuItem = useMemo(
-    () =>
-      activeWorkspaceId && permissionManageable
-        ? {
-            icon: <Icon icon={UsersIcon} />,
-            key: 'member-permissions',
-            label: t('permission.page.entry', { ns: 'setting' }),
-            onClick: (info: any) => {
-              info.domEvent?.stopPropagation();
-              wsNavigate(`/resource/library/${id}/permission`);
-            },
-          }
-        : null,
-    [activeWorkspaceId, permissionManageable, id, t, wsNavigate],
-  );
+  const isOwner = !!currentUserId && !!userId && userId === currentUserId;
+  // Owner or personal-share `full` may manage collaborators / invites.
+  const canManagePersonalShare =
+    !activeWorkspaceId && (isOwner || accessLevel === 'owner' || accessLevel === 'full');
+  const memberPermissionMenuItem = useMemo(() => {
+    if (activeWorkspaceId && permissionManageable) {
+      return {
+        icon: <Icon icon={UsersIcon} />,
+        key: 'member-permissions',
+        label: t('permission.page.entry', { ns: 'setting' }),
+        onClick: (info: any) => {
+          info.domEvent?.stopPropagation();
+          wsNavigate(`/resource/library/${id}/permission`);
+        },
+      };
+    }
+    if (canManagePersonalShare) {
+      return {
+        icon: <Icon icon={UsersIcon} />,
+        key: 'personal-share',
+        label: t('library.share.menuEntry'),
+        onClick: (info: any) => {
+          info.domEvent?.stopPropagation();
+          wsNavigate(`/resource/library/${id}/share`);
+        },
+      };
+    }
+    return null;
+  }, [activeWorkspaceId, permissionManageable, canManagePersonalShare, id, t, wsNavigate]);
 
   const handleDelete = useCallback(() => {
     if (!canEdit) return;

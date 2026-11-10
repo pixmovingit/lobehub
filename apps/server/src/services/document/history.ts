@@ -1,13 +1,15 @@
 import { buildWorkspaceWhere } from '@lobechat/database';
 import type { DocumentItem } from '@lobechat/database/schemas';
 import { documentHistories, documents } from '@lobechat/database/schemas';
-import { and, desc, eq, gte, inArray, lt, or } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lt, or, type SQL } from 'drizzle-orm';
 
 import {
   DOCUMENT_HISTORY_AUTOSAVE_WINDOW_MS,
   DOCUMENT_HISTORY_QUERY_LIST_LIMIT,
   DOCUMENT_HISTORY_SOURCE_LIMITS,
 } from '@/const/documentHistory';
+import { KnowledgeBaseAccessGrantModel } from '@/database/models/knowledgeBaseAccessGrant';
+import type { LobeChatDatabase } from '@/database/type';
 import { isValidEditorData } from '@/libs/editor/isValidEditorData';
 
 import type {
@@ -52,6 +54,43 @@ export class DocumentHistoryService {
   private historiesOwnership = () =>
     buildWorkspaceWhere({ userId: this.userId, workspaceId: this.workspaceId }, documentHistories);
 
+  /**
+   * Personal mode: history belongs to the document, not the editor. Shared
+   * libraries need that so a grantee's save can append a version (and so the
+   * updateDocument transaction is not rolled back at createHistory). Workspace
+   * mode keeps the existing workspace-scoped ownership predicate.
+   */
+  private documentHistoryScope = (documentId: string): SQL =>
+    this.workspaceId
+      ? and(eq(documentHistories.documentId, documentId), this.historiesOwnership())!
+      : eq(documentHistories.documentId, documentId);
+
+  private resolveWritableDocument = async (documentId: string) => {
+    const [owned] = await this.db
+      .select({ id: documents.id })
+      .from(documents)
+      .where(and(eq(documents.id, documentId), this.documentsOwnership()))
+      .limit(1);
+    if (owned) return owned;
+
+    if (this.workspaceId) return null;
+
+    const canEdit = await KnowledgeBaseAccessGrantModel.canPerformOnDocument(
+      this.db as LobeChatDatabase,
+      documentId,
+      this.userId,
+      'edit',
+    );
+    if (!canEdit) return null;
+
+    const [shared] = await this.db
+      .select({ id: documents.id })
+      .from(documents)
+      .where(eq(documents.id, documentId))
+      .limit(1);
+    return shared ?? null;
+  };
+
   createHistory = async (
     params: DocumentHistoryAttribution & {
       breakAutosaveWindow?: boolean;
@@ -61,27 +100,19 @@ export class DocumentHistoryService {
       savedAt: Date;
     },
   ) => {
-    const [document] = await this.db
-      .select({ id: documents.id })
-      .from(documents)
-      .where(and(eq(documents.id, params.documentId), this.documentsOwnership()))
-      .limit(1);
-
+    const document = await this.resolveWritableDocument(params.documentId);
     if (!document) {
       throw new Error('Document not found');
     }
 
+    const historyScope = this.documentHistoryScope(params.documentId);
     const editorIds = mergeEditorIds(params.editorIds);
 
     // One agent run keeps one version: the state before its first edit. Later
     // edits of the same run only join their editors to it.
     if (params.saveSource === 'llm_call' && params.operationId) {
       const existing = await this.db.query.documentHistories.findFirst({
-        where: and(
-          eq(documentHistories.documentId, params.documentId),
-          eq(documentHistories.operationId, params.operationId),
-          this.historiesOwnership(),
-        ),
+        where: and(historyScope, eq(documentHistories.operationId, params.operationId)),
       });
 
       if (existing) {
@@ -89,7 +120,7 @@ export class DocumentHistoryService {
           await this.db
             .update(documentHistories)
             .set({ editorIds: mergeEditorIds(existing.editorIds, editorIds) })
-            .where(and(eq(documentHistories.id, existing.id), this.historiesOwnership()));
+            .where(and(eq(documentHistories.id, existing.id), historyScope));
         }
         return { id: existing.id, savedAt: existing.savedAt };
       }
@@ -103,7 +134,7 @@ export class DocumentHistoryService {
     if (params.saveSource === 'autosave' && !params.breakAutosaveWindow) {
       const latest = await this.db.query.documentHistories.findFirst({
         orderBy: [desc(documentHistories.savedAt), desc(documentHistories.id)],
-        where: and(eq(documentHistories.documentId, params.documentId), this.historiesOwnership()),
+        where: historyScope,
       });
 
       const withinWindow =
@@ -121,7 +152,7 @@ export class DocumentHistoryService {
               : latest.editorIds,
             savedAt: params.savedAt,
           })
-          .where(and(eq(documentHistories.id, latest.id), this.historiesOwnership()));
+          .where(and(eq(documentHistories.id, latest.id), historyScope));
 
         return { id: latest.id, savedAt: params.savedAt };
       }
@@ -189,8 +220,7 @@ export class DocumentHistoryService {
     const historyRow = await this.db.query.documentHistories.findFirst({
       where: and(
         eq(documentHistories.id, params.historyId),
-        eq(documentHistories.documentId, params.documentId),
-        this.historiesOwnership(),
+        this.documentHistoryScope(params.documentId),
         options?.historySince ? gte(documentHistories.savedAt, options.historySince) : undefined,
       ),
     });
@@ -234,8 +264,7 @@ export class DocumentHistoryService {
       limit: effectiveLimit,
       orderBy: [desc(documentHistories.savedAt), desc(documentHistories.id)],
       where: and(
-        eq(documentHistories.documentId, params.documentId),
-        this.historiesOwnership(),
+        this.documentHistoryScope(params.documentId),
         options?.historySince ? gte(documentHistories.savedAt, options.historySince) : undefined,
         params.beforeSavedAt !== undefined && params.beforeId !== undefined
           ? or(
@@ -299,8 +328,21 @@ export class DocumentHistoryService {
   };
 
   private findHeadDocument = async (documentId: string) => {
-    return this.db.query.documents.findFirst({
+    const owned = await this.db.query.documents.findFirst({
       where: and(eq(documents.id, documentId), this.documentsOwnership()),
+    });
+    if (owned || this.workspaceId) return owned;
+
+    const canBrowse = await KnowledgeBaseAccessGrantModel.canPerformOnDocument(
+      this.db as LobeChatDatabase,
+      documentId,
+      this.userId,
+      'view',
+    );
+    if (!canBrowse) return undefined;
+
+    return this.db.query.documents.findFirst({
+      where: eq(documents.id, documentId),
     });
   };
 
@@ -310,17 +352,12 @@ export class DocumentHistoryService {
   ) => {
     const limit = DOCUMENT_HISTORY_SOURCE_LIMITS[saveSource];
     const BATCH_SIZE = 100;
+    const historyScope = this.documentHistoryScope(documentId);
 
     const rowsToDelete = await this.db
       .select({ id: documentHistories.id })
       .from(documentHistories)
-      .where(
-        and(
-          eq(documentHistories.documentId, documentId),
-          this.historiesOwnership(),
-          eq(documentHistories.saveSource, saveSource),
-        ),
-      )
+      .where(and(historyScope, eq(documentHistories.saveSource, saveSource)))
       .orderBy(desc(documentHistories.savedAt), desc(documentHistories.id))
       .offset(limit)
       .limit(BATCH_SIZE);
@@ -329,8 +366,7 @@ export class DocumentHistoryService {
 
     await this.db.delete(documentHistories).where(
       and(
-        eq(documentHistories.documentId, documentId),
-        this.historiesOwnership(),
+        historyScope,
         eq(documentHistories.saveSource, saveSource),
         inArray(
           documentHistories.id,

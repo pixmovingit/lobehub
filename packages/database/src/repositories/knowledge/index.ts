@@ -36,10 +36,12 @@ import { alias, type AnyPgColumn, unionAll } from 'drizzle-orm/pg-core';
 
 import { DocumentModel } from '../../models/document';
 import { FileModel } from '../../models/file';
+import { KnowledgeBaseAccessGrantModel } from '../../models/knowledgeBaseAccessGrant';
 import { DOCUMENT_FOLDER_TYPE, documents, files, knowledgeBaseFiles, users } from '../../schemas';
 import type { LobeChatDatabase } from '../../type';
 import { buildDocumentCategoryFilter, buildFileCategoryFilter } from '../../utils/fileTypeCategory';
 import { notAgentShareFile, ownChatAttachment } from '../../utils/fileVisibility';
+import { notTrashed } from '../../utils/softDelete';
 import { buildWorkspaceWhere } from '../../utils/workspace';
 
 /**
@@ -348,15 +350,27 @@ export class KnowledgeRepo {
   private scope = () => ({ userId: this.userId, workspaceId: this.workspaceId });
 
   /**
+   * Personal rows that live outside every workspace. Used when a personal-share
+   * grant opens someone else's knowledge base: ownership would hide every row
+   * the creator filed, so we keep only the personal + not-trashed bounds and
+   * let the knowledge-base join decide membership.
+   */
+  private personalSharedFileScope = () => and(isNull(f.workspaceId), notTrashed(f.isDeleted));
+
+  private personalSharedDocumentScope = () => and(isNull(d.workspaceId), notTrashed(d.isDeleted));
+
+  /**
    * Scope predicate every file listing shares: ownership plus the exclusion of
    * acceptance evidence by source and visitor attachments by provenance.
    *
    * Asking for `acceptance` opts out of only that source filter. Agent-share
    * provenance remains an access boundary for every ordinary resource read.
+   *
+   * `skipOwnership` is for personal-share grantees browsing a granted library.
    */
-  private fileScope = (sourceFilter?: ResourceSourceFilter) =>
+  private fileScope = (sourceFilter?: ResourceSourceFilter, skipOwnership = false) =>
     and(
-      buildWorkspaceWhere(this.scope(), f),
+      skipOwnership ? this.personalSharedFileScope() : buildWorkspaceWhere(this.scope(), f),
       sourceFilter === ResourceSourceFilter.Acceptance
         ? undefined
         : or(
@@ -367,7 +381,8 @@ export class KnowledgeRepo {
       notAgentShareFile(f.metadata),
     );
 
-  private documentScope = () => buildWorkspaceWhere(this.scope(), d);
+  private documentScope = (skipOwnership = false) =>
+    skipOwnership ? this.personalSharedDocumentScope() : buildWorkspaceWhere(this.scope(), d);
 
   /**
    * `has_children` for one arm. It depends on the caller's scope, so it can't
@@ -380,7 +395,7 @@ export class KnowledgeRepo {
    * not by the listing's other filters, so a child the listing itself would
    * hide (another knowledge base, a hidden source) still counts.
    */
-  private hasChildrenColumn = (parentDocumentId: AnyPgColumn) =>
+  private hasChildrenColumn = (parentDocumentId: AnyPgColumn, skipOwnership = false) =>
     sql<boolean>`${or(
       exists(
         this.db
@@ -389,7 +404,9 @@ export class KnowledgeRepo {
           .where(
             and(
               eq(documents.parentId, parentDocumentId),
-              buildWorkspaceWhere(this.scope(), documents),
+              skipOwnership
+                ? and(isNull(documents.workspaceId), notTrashed(documents.isDeleted))
+                : buildWorkspaceWhere(this.scope(), documents),
             ),
           ),
       ),
@@ -398,7 +415,12 @@ export class KnowledgeRepo {
           .select({ one: sql`1` })
           .from(files)
           .where(
-            and(eq(files.parentId, parentDocumentId), buildWorkspaceWhere(this.scope(), files)),
+            and(
+              eq(files.parentId, parentDocumentId),
+              skipOwnership
+                ? and(isNull(files.workspaceId), notTrashed(files.isDeleted))
+                : buildWorkspaceWhere(this.scope(), files),
+            ),
           ),
       ),
     )}`.as('has_children');
@@ -447,10 +469,11 @@ export class KnowledgeRepo {
     sourceFilter?: ResourceSourceFilter,
     includeContent: boolean = true,
     includeContentPreview: boolean = false,
+    skipOwnership = false,
   ) => {
     const columns = {
       ...(includeContent ? fileArmColumns : fileArmSummaryColumns(includeContentPreview)),
-      hasChildren: this.hasChildrenColumn(d.id),
+      hasChildren: this.hasChildrenColumn(d.id, skipOwnership),
     };
     let query = this.db.select(columns).from(f).$dynamic();
 
@@ -472,9 +495,9 @@ export class KnowledgeRepo {
         // workspace-public file); handing out that page's id makes the library
         // list an entry that 404s the moment a member clicks it. Left join, so
         // the file keeps its row and simply carries no page to open.
-        .leftJoin(d, and(eq(d.fileId, f.id), this.documentScope()))
+        .leftJoin(d, and(eq(d.fileId, f.id), this.documentScope(skipOwnership)))
         .leftJoin(users, eq(users.id, f.userId))
-        .where(and(this.fileScope(sourceFilter), ...where))
+        .where(and(this.fileScope(sourceFilter, skipOwnership), ...where))
     );
   };
 
@@ -490,17 +513,18 @@ export class KnowledgeRepo {
     includeContent: boolean = true,
     includeContentPreview: boolean = false,
     includeAgentArtifacts: boolean = false,
+    skipOwnership = false,
   ) =>
     this.db
       .select({
         ...(includeContent ? documentArmColumns : documentArmSummaryColumns(includeContentPreview)),
-        hasChildren: this.hasChildrenColumn(d.id),
+        hasChildren: this.hasChildrenColumn(d.id, skipOwnership),
       })
       .from(d)
       .leftJoin(users, eq(users.id, d.userId))
       .where(
         and(
-          this.documentScope(),
+          this.documentScope(skipOwnership),
           ne(d.sourceType, 'file'),
           includeAgentArtifacts
             ? undefined
@@ -551,6 +575,20 @@ export class KnowledgeRepo {
       visibility: this.workspaceId ? visibility : undefined,
     };
 
+    // Personal shared library: membership is `knowledge_base_files` /
+    // `documents.knowledgeBaseId`, not row ownership. Collaborators upload as
+    // themselves, so the owner (and every other browser) must also drop the
+    // ownership predicate or those uploads stay invisible.
+    let skipOwnership = false;
+    if (knowledgeBaseId && !this.workspaceId) {
+      const access = await KnowledgeBaseAccessGrantModel.resolveAccess(
+        this.db,
+        knowledgeBaseId,
+        this.userId,
+      );
+      skipOwnership = access !== null;
+    }
+
     const fileArm = this.fileArm(
       [
         ...this.commonFilters(shared, {
@@ -571,6 +609,7 @@ export class KnowledgeRepo {
       sourceFilter,
       includeContent,
       includeContentPreview,
+      skipOwnership,
     );
 
     const documentArm = this.documentArm(
@@ -605,6 +644,7 @@ export class KnowledgeRepo {
       includeContent,
       includeContentPreview,
       Boolean(knowledgeBaseId),
+      skipOwnership,
     );
 
     const rows = await unionAll(fileArm, documentArm)

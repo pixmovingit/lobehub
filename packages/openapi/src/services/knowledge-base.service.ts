@@ -76,9 +76,11 @@ export class KnowledgeBaseService extends BaseService {
 
       const total = totalResult[0]?.count || 0;
 
-      // Add access type
+      // Prefer the personal-share accessType from KnowledgeBaseModel.query when
+      // present; fall back to owner for workspace / legacy rows.
       const knowledgeBasesWithAuthorization = items.map((item) => {
-        const accessType: KnowledgeBaseAccessType = 'owner';
+        const accessType: KnowledgeBaseAccessType =
+          (item as { accessType?: KnowledgeBaseAccessType }).accessType ?? 'owner';
 
         return {
           ...projectPublicKnowledgeBase(item),

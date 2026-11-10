@@ -45,6 +45,7 @@ import {
 } from '../utils/fileVisibility';
 import { documentOriginalCharCount } from '../utils/originalCharCount';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
+import { KnowledgeBaseAccessGrantModel } from './knowledgeBaseAccessGrant';
 
 export interface QueryDocumentParams {
   /**
@@ -184,6 +185,34 @@ export class DocumentModel {
   };
 
   delete = async (id: string) => {
+    if (!this.workspaceId) {
+      const [owned] = await this.db
+        .select({ id: documents.id })
+        .from(documents)
+        .where(and(this.readScope(), eq(documents.id, id)))
+        .limit(1);
+
+      if (!owned) {
+        const canDelete = await KnowledgeBaseAccessGrantModel.canPerformOnDocument(
+          this.db,
+          id,
+          this.userId,
+          'delete',
+        );
+        if (canDelete) {
+          return this.db
+            .delete(documents)
+            .where(
+              and(
+                eq(documents.id, id),
+                documentMatchesAccessScope(documents.metadata, this.documentAccessScope),
+                notAgentShareFileReference(this.db, documents.fileId),
+              ),
+            );
+        }
+      }
+    }
+
     return this.db.delete(documents).where(and(eq(documents.id, id), this.readScope()));
   };
 
@@ -323,20 +352,72 @@ export class DocumentModel {
   };
 
   findById = async (id: string): Promise<DocumentItem | undefined> => {
-    const [document] = await this.db
+    const [owned] = await this.db
       .select()
       .from(documents)
       .where(and(this.readScope(), eq(documents.id, id)))
       .limit(1);
-    return document;
+    if (owned || this.workspaceId) return owned;
+
+    const canBrowse = await KnowledgeBaseAccessGrantModel.canPerformOnDocument(
+      this.db,
+      id,
+      this.userId,
+      'view',
+    );
+    if (!canBrowse) return undefined;
+
+    const [shared] = await this.db
+      .select()
+      .from(documents)
+      .where(
+        and(
+          eq(documents.id, id),
+          documentMatchesAccessScope(documents.metadata, this.documentAccessScope),
+          notAgentShareFileReference(this.db, documents.fileId),
+        ),
+      )
+      .limit(1);
+    return shared;
   };
 
   findByIds = async (ids: string[]): Promise<DocumentItem[]> => {
     if (ids.length === 0) return [];
-    return this.db
+    const owned = await this.db
       .select()
       .from(documents)
       .where(and(this.readScope(), inArray(documents.id, ids)));
+    if (this.workspaceId || owned.length === ids.length) return owned;
+
+    const ownedIds = new Set(owned.map((doc) => doc.id));
+    const missing = [...new Set(ids)].filter((id) => !ownedIds.has(id));
+    if (missing.length === 0) return owned;
+
+    const grantAccessibleIds: string[] = [];
+    await Promise.all(
+      missing.map(async (id) => {
+        const allowed = await KnowledgeBaseAccessGrantModel.canPerformOnDocument(
+          this.db,
+          id,
+          this.userId,
+          'view',
+        );
+        if (allowed) grantAccessibleIds.push(id);
+      }),
+    );
+    if (grantAccessibleIds.length === 0) return owned;
+
+    const granted = await this.db
+      .select()
+      .from(documents)
+      .where(
+        and(
+          inArray(documents.id, grantAccessibleIds),
+          documentMatchesAccessScope(documents.metadata, this.documentAccessScope),
+          notAgentShareFileReference(this.db, documents.fileId),
+        ),
+      );
+    return [...owned, ...granted];
   };
 
   /**
@@ -448,17 +529,40 @@ export class DocumentModel {
     // incoming value so callers can't sneak around the one-way rule.
     const { metadata, updatedAt: _updatedAt, visibility: _ignored, ...patch } = value;
 
-    const [row] = await this.db
+    const setValue = {
+      ...patch,
+      ...(metadata !== undefined && { metadata: this.scopeMetadata(metadata) }),
+      updatedAt: nextDocumentUpdatedAt(),
+    };
+
+    const [ownedRow] = await this.db
       .update(documents)
-      .set({
-        ...patch,
-        ...(metadata !== undefined && { metadata: this.scopeMetadata(metadata) }),
-        updatedAt: nextDocumentUpdatedAt(),
-      })
+      .set(setValue)
       .where(and(this.readScope(), eq(documents.id, id)))
       .returning({ updatedAt: documents.updatedAt });
+    if (ownedRow || this.workspaceId) return ownedRow?.updatedAt;
 
-    return row?.updatedAt;
+    const canEdit = await KnowledgeBaseAccessGrantModel.canPerformOnDocument(
+      this.db,
+      id,
+      this.userId,
+      'edit',
+    );
+    if (!canEdit) return undefined;
+
+    const [sharedRow] = await this.db
+      .update(documents)
+      .set(setValue)
+      .where(
+        and(
+          eq(documents.id, id),
+          documentMatchesAccessScope(documents.metadata, this.documentAccessScope),
+          notAgentShareFileReference(this.db, documents.fileId),
+        ),
+      )
+      .returning({ updatedAt: documents.updatedAt });
+
+    return sharedRow?.updatedAt;
   };
 
   /**
@@ -477,30 +581,48 @@ export class DocumentModel {
     if (value.parentId !== undefined) patch.parentId = value.parentId;
     if (Object.keys(patch).length === 0) return [];
 
+    // Skip documents that are an agent's own copy of the file
+    // (AgentDocumentsService.importFile): they keep their collision-safe VFS filename and
+    // agent-folder parent. Such a copy is created together with its agent_documents
+    // binding in one transaction, so both rows share `created_at` (defaultNow() is fixed
+    // per transaction). `associateDocument` binds a document that already existed, so an
+    // associated knowledge-base mirror or page keeps following the file.
+    const notAgentOwnedCopy = notExists(
+      this.db
+        .select({ id: agentDocuments.id })
+        .from(agentDocuments)
+        .where(
+          and(
+            eq(agentDocuments.documentId, documents.id),
+            eq(agentDocuments.createdAt, documents.createdAt),
+          ),
+        ),
+    );
+
+    const owned = await this.db
+      .update(documents)
+      .set({ ...patch, updatedAt: nextDocumentUpdatedAt() })
+      .where(and(this.readScope(), eq(documents.fileId, fileId), notAgentOwnedCopy))
+      .returning({ id: documents.id });
+    if (owned.length > 0 || this.workspaceId) return owned;
+
+    const canEdit = await KnowledgeBaseAccessGrantModel.canPerformOnFile(
+      this.db,
+      fileId,
+      this.userId,
+      'edit',
+    );
+    if (!canEdit) return [];
+
     return this.db
       .update(documents)
       .set({ ...patch, updatedAt: nextDocumentUpdatedAt() })
       .where(
         and(
-          this.readScope(),
           eq(documents.fileId, fileId),
-          // Skip documents that are an agent's own copy of the file
-          // (AgentDocumentsService.importFile): they keep their collision-safe VFS filename and
-          // agent-folder parent. Such a copy is created together with its agent_documents
-          // binding in one transaction, so both rows share `created_at` (defaultNow() is fixed
-          // per transaction). `associateDocument` binds a document that already existed, so an
-          // associated knowledge-base mirror or page keeps following the file.
-          notExists(
-            this.db
-              .select({ id: agentDocuments.id })
-              .from(agentDocuments)
-              .where(
-                and(
-                  eq(agentDocuments.documentId, documents.id),
-                  eq(agentDocuments.createdAt, documents.createdAt),
-                ),
-              ),
-          ),
+          documentMatchesAccessScope(documents.metadata, this.documentAccessScope),
+          notAgentShareFileReference(this.db, documents.fileId),
+          notAgentOwnedCopy,
         ),
       )
       .returning({ id: documents.id });

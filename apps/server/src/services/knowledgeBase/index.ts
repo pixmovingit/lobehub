@@ -12,6 +12,7 @@ import pMap from 'p-map';
 import { ChunkModel } from '@/database/models/chunk';
 import { DocumentModel } from '@/database/models/document';
 import { FileModel } from '@/database/models/file';
+import { KnowledgeBaseAccessGrantModel } from '@/database/models/knowledgeBaseAccessGrant';
 import type { FtsSearchKnowledgeBaseDocumentHit } from '@/database/repositories/ftsSearch';
 import { knowledgeBaseFiles } from '@/database/schemas';
 import { isFileBackedPlaceholder } from '@/database/utils/fileBackedPlaceholder';
@@ -156,16 +157,37 @@ export class KnowledgeBaseSearchService {
       if (knowledgeIds.length > 0) {
         // Scope the knowledge-base → file resolution to the caller so a user
         // cannot resolve another user's knowledgeBaseId to the victim's fileIds.
-        const knowledgeFiles = await this.serverDB.query.knowledgeBaseFiles.findMany({
-          where: and(
-            inArray(knowledgeBaseFiles.knowledgeBaseId, knowledgeIds),
-            buildWorkspaceWhere(
-              { userId: this.userId, workspaceId: this.workspaceId },
-              knowledgeBaseFiles,
-            ),
-          ),
-        });
-        finalFileIds = knowledgeFiles.map((f) => f.fileId).concat(finalFileIds);
+        // Personal grants are an exception: the KB's files stay owned by the
+        // creator, so resolve those ids by KB membership after an access check.
+        const grantedSet = !this.workspaceId
+          ? new Set(
+              await KnowledgeBaseAccessGrantModel.listGrantedKnowledgeBaseIds(
+                this.serverDB,
+                this.userId,
+              ),
+            )
+          : new Set<string>();
+        const grantedPersonalIds = knowledgeIds.filter((id) => grantedSet.has(id));
+        const ownedKnowledgeIds = knowledgeIds.filter((id) => !grantedSet.has(id));
+        const [ownedFiles, grantedFiles] = await Promise.all([
+          ownedKnowledgeIds.length > 0
+            ? this.serverDB.query.knowledgeBaseFiles.findMany({
+                where: and(
+                  inArray(knowledgeBaseFiles.knowledgeBaseId, ownedKnowledgeIds),
+                  buildWorkspaceWhere(
+                    { userId: this.userId, workspaceId: this.workspaceId },
+                    knowledgeBaseFiles,
+                  ),
+                ),
+              })
+            : Promise.resolve([] as Array<{ fileId: string }>),
+          grantedPersonalIds.length > 0
+            ? this.serverDB.query.knowledgeBaseFiles.findMany({
+                where: inArray(knowledgeBaseFiles.knowledgeBaseId, grantedPersonalIds),
+              })
+            : Promise.resolve([] as Array<{ fileId: string }>),
+        ]);
+        finalFileIds = [...ownedFiles, ...grantedFiles].map((f) => f.fileId).concat(finalFileIds);
       }
 
       return this.chunkModel.semanticSearchForChat({

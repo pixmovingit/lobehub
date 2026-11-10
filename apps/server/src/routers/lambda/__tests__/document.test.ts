@@ -7,6 +7,7 @@ import { TransferErrorCode } from '@/types/transferError';
 
 const mocks = vi.hoisted(() => ({
   assertContentsNotInRestrictedKnowledgeBase: vi.fn(),
+  assertPersonalSharedDocumentAccess: vi.fn(),
   assertCanEditResource: vi.fn(),
   assertCanPerformResourceAction: vi.fn(),
   businessFileTransferStorageCheck: vi.fn(),
@@ -102,6 +103,7 @@ vi.mock('@/server/services/workspacePermission', () => ({
 }));
 vi.mock('@/server/services/knowledgeBaseAccess', () => ({
   assertContentsNotInRestrictedKnowledgeBase: mocks.assertContentsNotInRestrictedKnowledgeBase,
+  assertPersonalSharedDocumentAccess: mocks.assertPersonalSharedDocumentAccess,
   getRestrictedKnowledgeBaseIds: vi.fn().mockResolvedValue([]),
 }));
 
@@ -114,6 +116,7 @@ describe('documentRouter transferDocument', () => {
     mocks.assertCanPerformResourceAction.mockResolvedValue(undefined);
     mocks.assertCanEditResource.mockResolvedValue(undefined);
     mocks.assertContentsNotInRestrictedKnowledgeBase.mockResolvedValue(undefined);
+    mocks.assertPersonalSharedDocumentAccess.mockResolvedValue(undefined);
     mocks.findById.mockResolvedValue({
       id: 'doc-1',
       parentId: 'old-parent',
@@ -121,6 +124,7 @@ describe('documentRouter transferDocument', () => {
       visibility: 'public',
       workspaceId: 'ws-1',
     });
+
     mocks.getResourceMeta.mockResolvedValue({
       userId: 'creator-1',
       visibility: 'public',
@@ -244,6 +248,7 @@ describe('documentRouter createDocument under a knowledge-base folder', () => {
     mocks.assertCanPerformResourceAction.mockResolvedValue(undefined);
     mocks.assertCanEditResource.mockResolvedValue(undefined);
     mocks.assertContentsNotInRestrictedKnowledgeBase.mockResolvedValue(undefined);
+    mocks.assertPersonalSharedDocumentAccess.mockResolvedValue(undefined);
     mocks.findBySlug.mockResolvedValue(undefined);
     // The parent folder was created by another member inside a public KB.
     mocks.getResourceMeta.mockResolvedValue({
@@ -439,6 +444,7 @@ describe('documentRouter updateDocument mention notifications', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.assertContentsNotInRestrictedKnowledgeBase.mockResolvedValue(undefined);
+    mocks.assertPersonalSharedDocumentAccess.mockResolvedValue(undefined);
     mocks.getResourceMeta.mockResolvedValue({
       userId: 'member-1',
       visibility: 'public',

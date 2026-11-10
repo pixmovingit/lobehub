@@ -3,20 +3,30 @@ import type { SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { KnowledgeBaseAccessGrantModel } from '@/database/models/knowledgeBaseAccessGrant';
 import type { LobeChatDatabase } from '@/database/type';
 import { getWorkspaceScopedPermissionMatches } from '@/server/services/workspacePermission';
 
 import {
   assertContentsNotInRestrictedKnowledgeBase,
   assertFileNotInRestrictedKnowledgeBase,
+  assertKnowledgeBaseBrowsable,
   filterRestrictedKnowledgeBases,
   getRestrictedKnowledgeBaseIds,
   getUseLevelKnowledgeBaseIds,
 } from './index';
 
+vi.mock('@/database/models/knowledgeBaseAccessGrant', () => ({
+  KnowledgeBaseAccessGrantModel: {
+    canBrowse: vi.fn(),
+  },
+}));
+
 vi.mock('@/server/services/workspacePermission', () => ({
   getWorkspaceScopedPermissionMatches: vi.fn(),
 }));
+
+const canBrowseMock = vi.mocked(KnowledgeBaseAccessGrantModel.canBrowse);
 
 const permissionMatchesMock = vi.mocked(getWorkspaceScopedPermissionMatches);
 
@@ -73,6 +83,26 @@ const dbCapturingWhere = (...results: unknown[][]) => {
 beforeEach(() => {
   vi.clearAllMocks();
   permissionMatchesMock.mockResolvedValue({ hasAllScope: false, hasOwnerScope: true });
+  canBrowseMock.mockResolvedValue(true);
+});
+
+describe('assertKnowledgeBaseBrowsable', () => {
+  it('checks personal share grants outside a workspace', async () => {
+    const ctx = { serverDB: dbWithResults(), userId: 'u1' };
+    canBrowseMock.mockResolvedValueOnce(false);
+
+    await expect(assertKnowledgeBaseBrowsable(ctx, 'kb-1')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    expect(canBrowseMock).toHaveBeenCalledWith(ctx.serverDB, 'kb-1', 'u1');
+  });
+
+  it('allows personal browse when a grant exists', async () => {
+    const ctx = { serverDB: dbWithResults(), userId: 'u1' };
+    canBrowseMock.mockResolvedValueOnce(true);
+
+    await expect(assertKnowledgeBaseBrowsable(ctx, 'kb-1')).resolves.toBeUndefined();
+  });
 });
 
 describe('getRestrictedKnowledgeBaseIds', () => {

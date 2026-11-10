@@ -22,6 +22,7 @@ import SourceFilter from '../ToolBar/SourceFilter';
 import ViewSwitcher from '../ToolBar/ViewSwitcher';
 import Breadcrumb from './Breadcrumb';
 import DriveCategoryTabs from './DriveCategoryTabs';
+import { LibraryShareButton } from './LibraryShareButton';
 import SearchInput from './SearchInput';
 
 /**
@@ -191,7 +192,9 @@ const Header = memo(() => {
           <SortDropdown />
           <BatchActionsDropdown selectCount={selectCount} onActionClick={onActionClick} />
           <ViewSwitcher />
-          <Flexbox style={{ marginLeft: isMobile ? 4 : 8 }}>
+          <Flexbox horizontal align={'center'} gap={8} style={{ marginLeft: isMobile ? 4 : 8 }}>
+            {/* Share sits beside Add so library sharing is reachable without the card menu. */}
+            <LibraryShareButton />
             {/* A phone header has no room for the labelled button. */}
             <AddButton iconOnly={isMobile} />
           </Flexbox>

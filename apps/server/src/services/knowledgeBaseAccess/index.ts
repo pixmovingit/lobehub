@@ -1,6 +1,8 @@
+import type { KnowledgeBaseGrantAccessLevel } from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
 import { and, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 
+import { KnowledgeBaseAccessGrantModel } from '@/database/models/knowledgeBaseAccessGrant';
 import { ResourcePermissionModel } from '@/database/models/resourcePermission';
 import {
   documents,
@@ -26,15 +28,28 @@ interface KnowledgeBaseAccessCtx {
  * list, chunks, previews). Mounting/retrieval is NOT gated here — a
  * restricted KB (resource-permission `use` level) stays usable on agents.
  *
- * Personal mode passes through: the models' ownership filter already scopes
- * rows to the caller, and resource permissions only exist inside workspaces.
+ * Personal mode: owner or an explicit personal share grant (`user` / `all`).
+ * Workspace mode: resource-permission `view` (and above).
  */
 export const assertKnowledgeBaseBrowsable = async (
   ctx: KnowledgeBaseAccessCtx,
   knowledgeBaseId: string,
   meta?: ResourceMeta,
 ): Promise<void> => {
-  if (!ctx.workspaceId) return;
+  if (!ctx.workspaceId) {
+    const canBrowse = await KnowledgeBaseAccessGrantModel.canBrowse(
+      ctx.serverDB,
+      knowledgeBaseId,
+      ctx.userId,
+    );
+    if (!canBrowse) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'You do not have access to this knowledge base',
+      });
+    }
+    return;
+  }
 
   await assertCanPerformResourceAction({
     action: 'view',
@@ -45,6 +60,94 @@ export const assertKnowledgeBaseBrowsable = async (
     userId: ctx.userId,
     workspaceId: ctx.workspaceId,
   });
+};
+
+/**
+ * Personal-share content mutations. Workspace keeps the existing browse/edit
+ * resource-permission path (no separate delete grade there).
+ *
+ * - `view` — browse (same as `assertKnowledgeBaseBrowsable` in personal mode)
+ * - `edit` — add / update library content
+ * - `delete` — remove files from the library
+ */
+export const assertPersonalKnowledgeBaseAccess = async (
+  ctx: KnowledgeBaseAccessCtx,
+  knowledgeBaseId: string,
+  required: KnowledgeBaseGrantAccessLevel,
+): Promise<void> => {
+  if (ctx.workspaceId) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'Personal knowledge base access checks only apply outside a workspace',
+    });
+  }
+
+  const allowed = await KnowledgeBaseAccessGrantModel.canPerform(
+    ctx.serverDB,
+    knowledgeBaseId,
+    ctx.userId,
+    required,
+  );
+  if (!allowed) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: `You need ${required} access to this knowledge base`,
+    });
+  }
+};
+
+/**
+ * Personal-share content mutations on creator-owned rows. Own rows stay
+ * ownership-gated; workspace mode is a no-op (resource permissions apply).
+ */
+export const assertPersonalSharedFileAccess = async (
+  ctx: KnowledgeBaseAccessCtx,
+  files: Array<{ id: string; userId: string }>,
+  required: KnowledgeBaseGrantAccessLevel,
+): Promise<void> => {
+  if (ctx.workspaceId) return;
+
+  for (const file of files) {
+    // Own rows stay ownership-gated; missing userId is treated as non-shared.
+    if (!file.userId || file.userId === ctx.userId) continue;
+    const allowed = await KnowledgeBaseAccessGrantModel.canPerformOnFile(
+      ctx.serverDB,
+      file.id,
+      ctx.userId,
+      required,
+    );
+    if (!allowed) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: `You need ${required} access to modify this file`,
+      });
+    }
+  }
+};
+
+export const assertPersonalSharedDocumentAccess = async (
+  ctx: KnowledgeBaseAccessCtx,
+  docs: Array<{ id: string; userId?: string | null }>,
+  required: KnowledgeBaseGrantAccessLevel,
+): Promise<void> => {
+  if (ctx.workspaceId) return;
+
+  for (const doc of docs) {
+    // Own rows stay ownership-gated; missing userId is treated as non-shared.
+    if (!doc.userId || doc.userId === ctx.userId) continue;
+    const allowed = await KnowledgeBaseAccessGrantModel.canPerformOnDocument(
+      ctx.serverDB,
+      doc.id,
+      ctx.userId,
+      required,
+    );
+    if (!allowed) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: `You need ${required} access to modify this document`,
+      });
+    }
+  }
 };
 
 /**

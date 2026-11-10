@@ -9,6 +9,7 @@ import {
 } from '../../schemas';
 import { isUserKnowledgeBase } from '../../utils/knowledgeBaseType';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../../utils/workspace';
+import { KnowledgeBaseAccessGrantModel } from '../knowledgeBaseAccessGrant';
 import { type AgentModelContext } from './context';
 
 export const getAgentAssignedKnowledge = async (ctx: AgentModelContext, id: string) => {
@@ -25,6 +26,14 @@ export const getAgentAssignedKnowledge = async (ctx: AgentModelContext, id: stri
   // callers can then treat `id === null` as "unavailable" and render a
   // placeholder in the editor list, while `resolveAgentKnowledgeBaseIds` in
   // the runtime naturally skips such rows via its `k.id` filter.
+  //
+  // Personal grants: a mounted shared KB is owned by someone else, so the
+  // ordinary buildWorkspaceWhere would null it out. Expand the ON clause
+  // with granted personal KB ids.
+  const grantedPersonalIds = ctx.workspaceId
+    ? []
+    : await KnowledgeBaseAccessGrantModel.listGrantedKnowledgeBaseIds(ctx.db, ctx.userId);
+
   const [knowledgeBaseResult, fileResult] = await Promise.all([
     ctx.db
       .select({ enabled: agentsKnowledgeBases.enabled, knowledgeBases })
@@ -42,7 +51,15 @@ export const getAgentAssignedKnowledge = async (ctx: AgentModelContext, id: stri
         knowledgeBases,
         and(
           eq(knowledgeBases.id, agentsKnowledgeBases.knowledgeBaseId),
-          buildWorkspaceWhere({ userId: ctx.userId, workspaceId: ctx.workspaceId }, knowledgeBases),
+          or(
+            buildWorkspaceWhere(
+              { userId: ctx.userId, workspaceId: ctx.workspaceId },
+              knowledgeBases,
+            ),
+            grantedPersonalIds.length > 0
+              ? inArray(knowledgeBases.id, grantedPersonalIds)
+              : undefined,
+          ),
         ),
       ),
     ctx.db
@@ -88,6 +105,16 @@ export const createAgentKnowledgeBase = async (
     )
     .limit(1);
   if (dedicated) throw new Error('A dedicated knowledge base cannot be mounted');
+
+  // Personal mode: require ownership or a share grant before creating a mount.
+  if (!ctx.workspaceId) {
+    const canBrowse = await KnowledgeBaseAccessGrantModel.canBrowse(
+      ctx.db,
+      knowledgeBaseId,
+      ctx.userId,
+    );
+    if (!canBrowse) throw new Error('Knowledge base is not accessible');
+  }
 
   return ctx.db
     .insert(agentsKnowledgeBases)

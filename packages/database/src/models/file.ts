@@ -57,6 +57,7 @@ import {
   ownChatAttachment,
 } from '../utils/fileVisibility';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
+import { KnowledgeBaseAccessGrantModel } from './knowledgeBaseAccessGrant';
 
 /**
  * Minimal file descriptor used to bootstrap user-uploaded files into a sandbox.
@@ -196,7 +197,33 @@ export class FileModel {
     accessScope: FileAccessScope,
   ) => {
     // In pglite environment, non-transactional operations cannot be used within a transaction as it will block
-    const file = await this.findById(id, { accessScope, transaction: tx });
+    const ownedFile = await tx.query.files.findFirst({
+      where: and(
+        eq(files.id, id),
+        this.ownership(),
+        fileMatchesAccessScope(files.metadata, accessScope),
+      ),
+    });
+
+    let file = ownedFile;
+    let deleteByGrant = false;
+    if (!file && !this.workspaceId) {
+      // Use the open transaction for grant checks — a second pool connection
+      // deadlocks under pglite while this transaction still holds row locks.
+      const canDelete = await KnowledgeBaseAccessGrantModel.canPerformOnFile(
+        tx as unknown as typeof this.db,
+        id,
+        this.userId,
+        'delete',
+      );
+      if (!canDelete) return;
+
+      file = await tx.query.files.findFirst({
+        where: and(eq(files.id, id), fileMatchesAccessScope(files.metadata, accessScope)),
+      });
+      if (!file) return;
+      deleteByGrant = true;
+    }
     if (!file) return;
 
     const fileHash = file.fileHash;
@@ -207,12 +234,19 @@ export class FileModel {
     // 2. Delete mirror documents whose source is this file. Without this,
     // documents.fileId would be set null by FK and leave orphan rows behind
     // (still indexed by BM25, still occupying KB slots).
+    // Personal-share delete grants act on the shared library content itself, so
+    // mirror docs follow even when they stay owned by the library creator.
     await tx
       .delete(documents)
       .where(
         and(
           eq(documents.fileId, id),
-          buildWorkspaceWhere({ userId: this.userId, workspaceId: this.workspaceId }, documents),
+          deleteByGrant
+            ? undefined
+            : buildWorkspaceWhere(
+                { userId: this.userId, workspaceId: this.workspaceId },
+                documents,
+              ),
           eq(documents.sourceType, 'file'),
         ),
       );
@@ -228,7 +262,9 @@ export class FileModel {
     }
 
     // 4. Delete file record
-    await tx.delete(files).where(and(eq(files.id, id), this.ownership()));
+    await tx
+      .delete(files)
+      .where(and(eq(files.id, id), deleteByGrant ? undefined : this.ownership()));
 
     if (!fileHash) {
       return removeGlobalFile && getAgentShareFileProvenance(file.metadata) ? file : undefined;
@@ -416,7 +452,7 @@ export class FileModel {
 
     return await this.db.transaction(async (trx) => {
       // 1. First get the file list to return the deleted files
-      const fileList = await trx.query.files.findMany({
+      const ownedList = await trx.query.files.findMany({
         where: and(
           inArray(files.id, ids),
           this.ownership(),
@@ -426,8 +462,33 @@ export class FileModel {
         ),
       });
 
+      let grantList: typeof ownedList = [];
+      if (!this.workspaceId && !options?.restrictToCreator) {
+        const ownedIds = new Set(ownedList.map((file) => file.id));
+        const missing = [...new Set(ids)].filter((id) => !ownedIds.has(id));
+        const grantDeletableIds: string[] = [];
+        // Sequential + same transaction connection avoids pglite pool deadlocks.
+        for (const id of missing) {
+          const allowed = await KnowledgeBaseAccessGrantModel.canPerformOnFile(
+            trx as unknown as typeof this.db,
+            id,
+            this.userId,
+            'delete',
+          );
+          if (allowed) grantDeletableIds.push(id);
+        }
+        if (grantDeletableIds.length > 0) {
+          grantList = await trx.query.files.findMany({
+            where: and(inArray(files.id, grantDeletableIds), notAgentShareFile(files.metadata)),
+          });
+        }
+      }
+
+      const fileList = [...ownedList, ...grantList];
       if (fileList.length === 0) return [];
 
+      const ownedTargetIds = ownedList.map((file) => file.id);
+      const grantTargetIds = grantList.map((file) => file.id);
       const targetIds = fileList.map((file) => file.id);
 
       // Extract file hashes that need to be checked
@@ -438,15 +499,25 @@ export class FileModel {
 
       // 3. Delete mirror documents (sourceType='file') so they don't linger as
       // orphans with fileId set to null after the file row is removed.
-      await trx
-        .delete(documents)
-        .where(
-          and(
-            inArray(documents.fileId, targetIds),
-            buildWorkspaceWhere({ userId: this.userId, workspaceId: this.workspaceId }, documents),
-            eq(documents.sourceType, 'file'),
-          ),
-        );
+      if (ownedTargetIds.length > 0) {
+        await trx
+          .delete(documents)
+          .where(
+            and(
+              inArray(documents.fileId, ownedTargetIds),
+              buildWorkspaceWhere(
+                { userId: this.userId, workspaceId: this.workspaceId },
+                documents,
+              ),
+              eq(documents.sourceType, 'file'),
+            ),
+          );
+      }
+      if (grantTargetIds.length > 0) {
+        await trx
+          .delete(documents)
+          .where(and(inArray(documents.fileId, grantTargetIds), eq(documents.sourceType, 'file')));
+      }
 
       // 4. Delete chunk/embedding asyncTasks attached to these files.
       const taskIds = fileList
@@ -457,7 +528,12 @@ export class FileModel {
       }
 
       // 5. Delete file records
-      await trx.delete(files).where(and(inArray(files.id, targetIds), this.ownership()));
+      if (ownedTargetIds.length > 0) {
+        await trx.delete(files).where(and(inArray(files.id, ownedTargetIds), this.ownership()));
+      }
+      if (grantTargetIds.length > 0) {
+        await trx.delete(files).where(inArray(files.id, grantTargetIds));
+      }
 
       // If global files don't need to be deleted, no storage object should be removed.
       if (!removeGlobalFile || hashList.length === 0) return [];
@@ -512,18 +588,33 @@ export class FileModel {
     excludeKnowledgeBaseIds?: string[];
     visibility?: 'private' | 'public';
   } = {}) => {
+    // Personal shared library: drop ownership for every browser (owner and
+    // grantee). Collaborator uploads keep the uploader's userId, so an owner
+    // ownership filter would hide them; membership comes from the KB join.
+    let skipOwnershipForGrantedKb = false;
+    if (knowledgeBaseId && !this.workspaceId) {
+      const access = await KnowledgeBaseAccessGrantModel.resolveAccess(
+        this.db,
+        knowledgeBaseId,
+        this.userId,
+      );
+      skipOwnershipForGrantedKb = access !== null;
+    }
+
     // 1. Build where clause
     let whereClause = and(
       q ? ilike(files.name, `%${q}%`) : undefined,
-      this.ownership(callerAgentVisibility),
+      skipOwnershipForGrantedKb ? undefined : this.ownership(callerAgentVisibility),
       visibility ? eq(files.visibility, visibility) : undefined,
-      or(
-        libraryVisibleFile(files.source, files.metadata),
-        and(
-          ownChatAttachment(files.source, files.userId, this.userId),
-          notAgentShareFile(files.metadata),
-        ),
-      ),
+      skipOwnershipForGrantedKb
+        ? undefined
+        : or(
+            libraryVisibleFile(files.source, files.metadata),
+            and(
+              ownChatAttachment(files.source, files.userId, this.userId),
+              notAgentShareFile(files.metadata),
+            ),
+          ),
     );
     if (category && category !== FilesTabs.All && category !== FilesTabs.Home) {
       const categoryFilter = buildFileCategoryFilter(files.fileType, category as FilesTabs);
@@ -629,19 +720,51 @@ export class FileModel {
   };
 
   findByIds = async (ids: string[], accessScope: FileAccessScope = ordinaryFileAccessScope) => {
-    return this.db.query.files.findMany({
+    if (ids.length === 0) return [];
+
+    const owned = await this.db.query.files.findMany({
       where: and(
         inArray(files.id, ids),
         this.ownership(),
         fileMatchesAccessScope(files.metadata, accessScope),
       ),
     });
+    if (this.workspaceId || owned.length === ids.length) return owned;
+
+    const ownedIds = new Set(owned.map((file) => file.id));
+    const missing = [...new Set(ids)].filter((id) => !ownedIds.has(id));
+    if (missing.length === 0) return owned;
+
+    const grantAccessibleIds: string[] = [];
+    await Promise.all(
+      missing.map(async (id) => {
+        const allowed = await KnowledgeBaseAccessGrantModel.canPerformOnFile(
+          this.db,
+          id,
+          this.userId,
+          'view',
+        );
+        if (allowed) grantAccessibleIds.push(id);
+      }),
+    );
+    if (grantAccessibleIds.length === 0) return owned;
+
+    const granted = await this.db.query.files.findMany({
+      where: and(
+        inArray(files.id, grantAccessibleIds),
+        fileMatchesAccessScope(files.metadata, accessScope),
+      ),
+    });
+    return [...owned, ...granted];
   };
 
   /**
    * Libraries (knowledge bases) a file is filed in that the caller can see. A
    * collaborator may have filed it into their own private library, which the
    * caller must neither learn about nor write to.
+   *
+   * Personal-share grantees also see libraries they were granted, so open /
+   * preview can resolve the shared library membership for creator-owned files.
    */
   findKnowledgeBaseIds = async (fileId: string): Promise<string[]> => {
     const rows = await this.db
@@ -657,7 +780,26 @@ export class FileModel {
           ),
         ),
       );
-    return rows.map((row) => row.id);
+    const ownedIds = rows.map((row) => row.id);
+    if (this.workspaceId) return ownedIds;
+
+    const grantedKbIds = await KnowledgeBaseAccessGrantModel.listGrantedKnowledgeBaseIds(
+      this.db,
+      this.userId,
+    );
+    if (grantedKbIds.length === 0) return ownedIds;
+
+    const grantedRows = await this.db
+      .select({ id: knowledgeBaseFiles.knowledgeBaseId })
+      .from(knowledgeBaseFiles)
+      .where(
+        and(
+          eq(knowledgeBaseFiles.fileId, fileId),
+          inArray(knowledgeBaseFiles.knowledgeBaseId, grantedKbIds),
+        ),
+      );
+
+    return [...new Set([...ownedIds, ...grantedRows.map((row) => row.id)])];
   };
 
   /**
@@ -684,12 +826,26 @@ export class FileModel {
   ) => {
     const { accessScope = ordinaryFileAccessScope, transaction } = options;
     const database = transaction || this.db;
-    return database.query.files.findFirst({
+    const owned = await database.query.files.findFirst({
       where: and(
         eq(files.id, id),
         this.ownership(),
         fileMatchesAccessScope(files.metadata, accessScope),
       ),
+    });
+    if (owned || this.workspaceId) return owned;
+
+    // Personal-share grantee: creator-owned files in a granted library.
+    const canBrowse = await KnowledgeBaseAccessGrantModel.canPerformOnFile(
+      database as unknown as typeof this.db,
+      id,
+      this.userId,
+      'view',
+    );
+    if (!canBrowse) return undefined;
+
+    return database.query.files.findFirst({
+      where: and(eq(files.id, id), fileMatchesAccessScope(files.metadata, accessScope)),
     });
   };
 
@@ -840,11 +996,25 @@ export class FileModel {
     return result[0].count;
   };
 
-  update = async (id: string, value: Partial<FileItem>) =>
-    this.db
+  update = async (id: string, value: Partial<FileItem>) => {
+    const setValue = { ...value, updatedAt: new Date() };
+    const owned = await this.db
       .update(files)
-      .set({ ...value, updatedAt: new Date() })
-      .where(and(eq(files.id, id), this.ownership()));
+      .set(setValue)
+      .where(and(eq(files.id, id), this.ownership()))
+      .returning({ id: files.id });
+    if (owned.length > 0 || this.workspaceId) return owned;
+
+    const canEdit = await KnowledgeBaseAccessGrantModel.canPerformOnFile(
+      this.db,
+      id,
+      this.userId,
+      'edit',
+    );
+    if (!canEdit) return [];
+
+    return this.db.update(files).set(setValue).where(eq(files.id, id)).returning({ id: files.id });
+  };
 
   /**
    * Publish a private file into the workspace. Thin wrapper around

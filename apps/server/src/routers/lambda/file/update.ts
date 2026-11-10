@@ -6,6 +6,7 @@ import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPer
 import { DocumentModel } from '@/database/models/document';
 import { FileModel } from '@/database/models/file';
 import { router } from '@/libs/trpc/lambda';
+import { assertPersonalSharedFileAccess } from '@/server/services/knowledgeBaseAccess';
 import { stripAgentShareFileProvenance } from '@/types/files';
 
 import { assertFileNotInRestrictedKnowledgeBase } from '../_helpers/knowledgeBaseAccess';
@@ -28,6 +29,7 @@ export const updateRouter = router({
       const existing = await ctx.fileModel.findById(id);
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'File not found' });
       await assertFileNotInRestrictedKnowledgeBase(ctx, id);
+      await assertPersonalSharedFileAccess(ctx, [existing], 'edit');
 
       // Resolve parentId if it's a slug (otherwise use as-is)
       let resolvedParentId: string | null | undefined = parentId;

@@ -4,6 +4,7 @@ import type { DocumentHistoryItem, NewDocumentHistory } from '../schemas';
 import { documentHistories, documents } from '../schemas';
 import type { LobeChatDatabase } from '../type';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
+import { KnowledgeBaseAccessGrantModel } from './knowledgeBaseAccessGrant';
 
 export interface QueryDocumentHistoryParams {
   beforeId?: string;
@@ -31,7 +32,7 @@ export class DocumentHistoryModel {
   }
 
   create = async (params: Omit<NewDocumentHistory, 'userId'>): Promise<DocumentHistoryItem> => {
-    const [document] = await this.db
+    const [owned] = await this.db
       .select({ id: documents.id })
       .from(documents)
       .where(
@@ -41,6 +42,24 @@ export class DocumentHistoryModel {
         ),
       )
       .limit(1);
+
+    let document = owned;
+    if (!document && !this.workspaceId) {
+      const canEdit = await KnowledgeBaseAccessGrantModel.canPerformOnDocument(
+        this.db,
+        params.documentId,
+        this.userId,
+        'edit',
+      );
+      if (canEdit) {
+        const [shared] = await this.db
+          .select({ id: documents.id })
+          .from(documents)
+          .where(eq(documents.id, params.documentId))
+          .limit(1);
+        document = shared;
+      }
+    }
 
     if (!document) {
       throw new Error('Document not found');

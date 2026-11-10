@@ -1,6 +1,6 @@
 'use client';
 
-import { Flexbox, Icon, Text } from '@lobehub/ui';
+import { Flexbox, Icon, Tag, Text } from '@lobehub/ui';
 import { cssVar } from '@lobehub/ui/stylex/cssVar.stylex';
 import * as stylex from '@stylexjs/stylex';
 import dayjs from 'dayjs';
@@ -8,8 +8,10 @@ import { PlusIcon } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import LibraryStatusIcon from '@/components/LibIcon/StatusIcon';
 import LibraryCover, { libraryCoverOf } from '@/features/LibraryCover';
+import { resolveLibrarySharingState } from '@/features/ResourceLibrary/libraryHeroMeta';
 import type { KnowledgeBaseItem } from '@/types/knowledgeBase';
 
 export const libraryCardStyles = stylex.create({
@@ -81,21 +83,37 @@ interface LibraryCardProps {
   onOpen: (id: string) => void;
 }
 
-/** A library as a cover card: cover, name, description, visibility and last update. */
+/** A library as a cover card: cover, name, sharing label and last update. */
 export const LibraryCard = memo<LibraryCardProps>(({ library, onOpen }) => {
   const { t } = useTranslation('file');
+  const activeWorkspaceId = useActiveWorkspaceId();
+  const { isShared, statusVisibility, tagColor } = resolveLibrarySharingState({
+    activeWorkspaceId,
+    isShared: library.isShared,
+    visibility: library.visibility,
+  });
+  const sharingLabel = isShared
+    ? activeWorkspaceId
+      ? t('docs.library.sharing.workspace')
+      : t('docs.library.sharing.shared')
+    : t('docs.library.sharing.private');
 
   return (
     <button type={'button'} {...stylex.props(styles.card)} onClick={() => onOpen(library.id)}>
       <LibraryCover cover={libraryCoverOf(library.settings)} height={88} seed={library.id} />
       <Flexbox gap={6} paddingBlock={12} paddingInline={14} width={'100%'}>
-        <Flexbox horizontal align={'center'} gap={6}>
-          <LibraryStatusIcon
-            memberRestricted={(library as { memberRestricted?: boolean }).memberRestricted}
-            size={16}
-            visibility={library.visibility}
-          />
-          <span {...stylex.props(styles.name)}>{library.name}</span>
+        <Flexbox horizontal align={'center'} gap={6} justify={'space-between'} width={'100%'}>
+          <Flexbox horizontal align={'center'} gap={6} style={{ minWidth: 0 }}>
+            <LibraryStatusIcon
+              memberRestricted={(library as { memberRestricted?: boolean }).memberRestricted}
+              size={16}
+              visibility={statusVisibility}
+            />
+            <span {...stylex.props(styles.name)}>{library.name}</span>
+          </Flexbox>
+          <Tag color={tagColor} size={'small'}>
+            {sharingLabel}
+          </Tag>
         </Flexbox>
         <div {...stylex.props(styles.description)}>
           {library.description || t('docs.library.noDescription')}

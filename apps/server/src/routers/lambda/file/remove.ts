@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
 import { serverDBEnv } from '@/config/db';
 import { router } from '@/libs/trpc/lambda';
+import { assertPersonalSharedFileAccess } from '@/server/services/knowledgeBaseAccess';
 
 import { assertFileNotInRestrictedKnowledgeBase } from '../_helpers/knowledgeBaseAccess';
 import { fileProcedure } from './procedures';
@@ -39,6 +40,7 @@ export const removeRouter = router({
       const existing = await ctx.fileModel.findById(input.id);
       if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'File not found' });
       await assertFileNotInRestrictedKnowledgeBase(ctx, input.id);
+      await assertPersonalSharedFileAccess(ctx, [existing], 'delete');
 
       const file = await ctx.fileModel.delete(input.id, {
         removeGlobalFile: serverDBEnv.REMOVE_GLOBAL_FILE,
@@ -93,6 +95,7 @@ export const removeRouter = router({
       const targets = await ctx.fileModel.findByIds(ids);
       assertAllFilesAccessible(ids, targets);
       await assertFilesNotInRestrictedKnowledgeBase(ctx, targets);
+      await assertPersonalSharedFileAccess(ctx, targets, 'delete');
 
       const needToRemoveFileList = await ctx.fileModel.deleteMany(
         ids,

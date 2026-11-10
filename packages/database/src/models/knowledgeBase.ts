@@ -1,4 +1,9 @@
-import type { KnowledgeBaseItem } from '@lobechat/types';
+import type {
+  KnowledgeBaseGrantAccessLevel,
+  KnowledgeBaseItem,
+  KnowledgeBasePersonalAccessType,
+} from '@lobechat/types';
+import { KNOWLEDGE_BASE_GRANT_ACCESS_RANK } from '@lobechat/types';
 import { and, count, desc, eq, inArray, ne, or, sum } from 'drizzle-orm';
 
 import type { NewDocument, NewFile, NewKnowledgeBase } from '../schemas';
@@ -7,6 +12,7 @@ import type { LobeChatDatabase } from '../type';
 import { isUserKnowledgeBase } from '../utils/knowledgeBaseType';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
 import { FileModel } from './file';
+import { KnowledgeBaseAccessGrantModel } from './knowledgeBaseAccessGrant';
 
 export class KnowledgeBaseModel {
   private userId: string;
@@ -42,10 +48,23 @@ export class KnowledgeBaseModel {
   };
 
   addFilesToKnowledgeBase = async (id: string, fileIds: string[]) => {
-    // Verify the target knowledge base belongs to the current user
-    const kb = await this.db.query.knowledgeBases.findFirst({
+    // Owner / workspace membership, or a personal-share `edit`+ grant.
+    let kb = await this.db.query.knowledgeBases.findFirst({
       where: and(eq(knowledgeBases.id, id), this.ownership()),
     });
+    if (!kb && !this.workspaceId) {
+      const canEdit = await KnowledgeBaseAccessGrantModel.canPerform(
+        this.db,
+        id,
+        this.userId,
+        'edit',
+      );
+      if (canEdit) {
+        kb = await this.db.query.knowledgeBases.findFirst({
+          where: and(eq(knowledgeBases.id, id), isUserKnowledgeBase()),
+        });
+      }
+    }
     if (!kb) return [];
 
     // Separate document IDs from file IDs
@@ -146,6 +165,17 @@ export class KnowledgeBaseModel {
   };
 
   removeFilesFromKnowledgeBase = async (knowledgeBaseId: string, ids: string[]) => {
+    // Personal-share `delete` may unlink any library membership row; otherwise
+    // keep the caller-scoped filter (own contributions / workspace ownership).
+    const canDeleteShared =
+      !this.workspaceId &&
+      (await KnowledgeBaseAccessGrantModel.canPerform(
+        this.db,
+        knowledgeBaseId,
+        this.userId,
+        'delete',
+      ));
+
     // Separate document IDs from file IDs
     const documentIds = ids.filter((id) => id.startsWith('docs_'));
     const directFileIds = ids.filter((id) => !id.startsWith('docs_'));
@@ -159,7 +189,12 @@ export class KnowledgeBaseModel {
         .where(
           and(
             inArray(documents.id, documentIds),
-            buildWorkspaceWhere({ userId: this.userId, workspaceId: this.workspaceId }, documents),
+            canDeleteShared
+              ? eq(documents.knowledgeBaseId, knowledgeBaseId)
+              : buildWorkspaceWhere(
+                  { userId: this.userId, workspaceId: this.workspaceId },
+                  documents,
+                ),
           ),
         );
 
@@ -175,8 +210,13 @@ export class KnowledgeBaseModel {
         .where(
           and(
             inArray(documents.id, documentIds),
-            buildWorkspaceWhere({ userId: this.userId, workspaceId: this.workspaceId }, documents),
             eq(documents.knowledgeBaseId, knowledgeBaseId),
+            canDeleteShared
+              ? undefined
+              : buildWorkspaceWhere(
+                  { userId: this.userId, workspaceId: this.workspaceId },
+                  documents,
+                ),
           ),
         );
     }
@@ -190,10 +230,12 @@ export class KnowledgeBaseModel {
       .delete(knowledgeBaseFiles)
       .where(
         and(
-          buildWorkspaceWhere(
-            { userId: this.userId, workspaceId: this.workspaceId },
-            knowledgeBaseFiles,
-          ),
+          canDeleteShared
+            ? undefined
+            : buildWorkspaceWhere(
+                { userId: this.userId, workspaceId: this.workspaceId },
+                knowledgeBaseFiles,
+              ),
           eq(knowledgeBaseFiles.knowledgeBaseId, knowledgeBaseId),
           inArray(knowledgeBaseFiles.fileId, resolvedFileIds),
         ),
@@ -205,8 +247,46 @@ export class KnowledgeBaseModel {
     visibility?: 'private' | 'public';
   }) => {
     const ownershipWhere = this.ownership(options?.callerAgentVisibility);
+
+    // Personal mode: also surface libraries granted to this user (or to all
+    // registered users). Workspace mode keeps ownership-only listing; member
+    // discoverability there is handled by resource permissions + visibility.
+    let visibilityWhere = ownershipWhere;
+    const grantAccessById = new Map<string, KnowledgeBasePersonalAccessType>();
+    const grantLevelById = new Map<string, KnowledgeBaseGrantAccessLevel>();
+    if (!this.workspaceId) {
+      const grantRows = await KnowledgeBaseAccessGrantModel.listGrantedKnowledgeBaseRows(
+        this.db,
+        this.userId,
+      );
+      for (const row of grantRows) {
+        const next: KnowledgeBasePersonalAccessType =
+          row.subjectType === 'all' ? 'public' : 'userGrant';
+        const prev = grantAccessById.get(row.knowledgeBaseId);
+        // Prefer the more specific user grant label when both exist.
+        if (!prev || (prev === 'public' && next === 'userGrant')) {
+          grantAccessById.set(row.knowledgeBaseId, next);
+        }
+        const prevLevel = grantLevelById.get(row.knowledgeBaseId);
+        if (
+          !prevLevel ||
+          KNOWLEDGE_BASE_GRANT_ACCESS_RANK[row.accessLevel] >
+            KNOWLEDGE_BASE_GRANT_ACCESS_RANK[prevLevel]
+        ) {
+          grantLevelById.set(row.knowledgeBaseId, row.accessLevel);
+        }
+      }
+      const grantedIds = [...grantAccessById.keys()];
+      if (grantedIds.length > 0) {
+        // `or()` is typed as possibly undefined; ownership + grants is always a
+        // concrete predicate once both sides are present.
+        visibilityWhere =
+          or(ownershipWhere, inArray(knowledgeBases.id, grantedIds)) ?? ownershipWhere;
+      }
+    }
+
     const conditions = and(
-      ownershipWhere,
+      visibilityWhere,
       isUserKnowledgeBase(),
       options?.visibility ? eq(knowledgeBases.visibility, options.visibility) : undefined,
     );
@@ -229,12 +309,41 @@ export class KnowledgeBaseModel {
       .where(conditions)
       .orderBy(desc(knowledgeBases.updatedAt));
 
-    return data as KnowledgeBaseItem[];
+    if (this.workspaceId) return data as KnowledgeBaseItem[];
+
+    return data.map((item) => {
+      const isOwner = item.userId === this.userId;
+      const accessType: KnowledgeBasePersonalAccessType = isOwner
+        ? 'owner'
+        : (grantAccessById.get(item.id) ?? 'userGrant');
+      const accessLevel = isOwner ? ('owner' as const) : (grantLevelById.get(item.id) ?? 'view');
+      return { ...item, accessLevel, accessType } as KnowledgeBaseItem;
+    });
   };
 
+  /**
+   * Owner-scoped lookup used by mutations. Does not honor personal grants.
+   */
   findById = async (id: string, callerAgentVisibility?: 'private' | 'public' | null) => {
     return this.db.query.knowledgeBases.findFirst({
       where: and(eq(knowledgeBases.id, id), this.ownership(callerAgentVisibility)),
+    });
+  };
+
+  /**
+   * Read-side lookup: owner OR personal-space grant. Workspace callers still
+   * use ownership (workspace browse is gated elsewhere).
+   */
+  findAccessibleById = async (id: string, callerAgentVisibility?: 'private' | 'public' | null) => {
+    const owned = await this.findById(id, callerAgentVisibility);
+    if (owned) return owned;
+    if (this.workspaceId) return undefined;
+
+    const access = await KnowledgeBaseAccessGrantModel.resolveAccess(this.db, id, this.userId);
+    if (!access || access === 'owner') return undefined;
+
+    return this.db.query.knowledgeBases.findFirst({
+      where: and(eq(knowledgeBases.id, id), isUserKnowledgeBase()),
     });
   };
 
@@ -277,10 +386,20 @@ export class KnowledgeBaseModel {
       ...safe
     } = value as Partial<KnowledgeBaseItem> & { workspaceId?: string | null };
 
+    const owned = await this.db.query.knowledgeBases.findFirst({
+      where: and(eq(knowledgeBases.id, id), this.ownership()),
+    });
+    const canUpdateShared =
+      !owned &&
+      !this.workspaceId &&
+      (await KnowledgeBaseAccessGrantModel.canPerform(this.db, id, this.userId, 'full'));
+
     return this.db
       .update(knowledgeBases)
       .set({ ...safe, updatedAt: new Date() })
-      .where(and(eq(knowledgeBases.id, id), this.ownership()));
+      .where(
+        and(eq(knowledgeBases.id, id), canUpdateShared ? isUserKnowledgeBase() : this.ownership()),
+      );
   };
 
   /**

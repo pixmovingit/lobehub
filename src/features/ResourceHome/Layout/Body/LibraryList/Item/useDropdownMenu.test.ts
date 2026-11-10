@@ -76,9 +76,13 @@ interface MenuItem {
   type?: 'divider';
 }
 
-const getItems = (permissionManageable = false) => {
+const getItems = (
+  permissionManageable = false,
+  accessLevel?: 'owner' | 'view' | 'edit' | 'delete' | 'full',
+) => {
   const { result } = renderHook(() =>
     useDropdownMenu({
+      accessLevel,
       id: 'kb-1',
       name: 'Shared library',
       permissionManageable,
@@ -200,5 +204,33 @@ describe('Knowledge base list item dropdown menu', () => {
     mocks.canEdit = false;
 
     expect(getKeys(getItems())).toEqual([]);
+  });
+
+  it('shows personal share for the owner outside a workspace without workspace visibility actions', () => {
+    mocks.activeWorkspaceId = undefined;
+    mocks.currentUserId = 'user-creator';
+
+    // Personal rows default to visibility=public, but publish / makePrivate are
+    // workspace-only and must not appear — the server rejects them there.
+    expect(getKeys(getItems())).toEqual(['rename', 'editDescription', 'personal-share', 'delete']);
+  });
+
+  it('shows personal share for a full-access grantee outside a workspace', () => {
+    mocks.activeWorkspaceId = undefined;
+    mocks.currentUserId = 'user-current';
+
+    expect(getKeys(getItems(false, 'full'))).toEqual([
+      'rename',
+      'editDescription',
+      'personal-share',
+      'delete',
+    ]);
+  });
+
+  it('hides personal share for view-only grantees outside a workspace', () => {
+    mocks.activeWorkspaceId = undefined;
+    mocks.currentUserId = 'user-current';
+
+    expect(getKeys(getItems(false, 'view'))).toEqual(['rename', 'editDescription', 'delete']);
   });
 });

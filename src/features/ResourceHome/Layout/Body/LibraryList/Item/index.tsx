@@ -14,6 +14,7 @@ import Editing from './Editing';
 import { useDropdownMenu } from './useDropdownMenu';
 
 interface KnowledgeBaseItemProps {
+  accessLevel?: 'owner' | 'view' | 'edit' | 'delete' | 'full';
   active?: boolean;
   className?: string;
   description?: string | null;
@@ -28,6 +29,7 @@ interface KnowledgeBaseItemProps {
 
 const KnowledgeBaseItem = memo<KnowledgeBaseItemProps>(
   ({
+    accessLevel,
     id,
     name,
     description,
@@ -98,6 +100,7 @@ const KnowledgeBaseItem = memo<KnowledgeBaseItemProps>(
     }, [isLoading, visibility, isMemberRestricted]);
 
     const dropdownMenu = useDropdownMenu({
+      accessLevel,
       description,
       id,
       name,

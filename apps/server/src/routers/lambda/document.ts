@@ -21,6 +21,7 @@ import { DocumentService } from '@/server/services/document';
 import { resolveDocumentWrite } from '@/server/services/document/editorData';
 import { canViewDocumentContent, getDocumentForViewer } from '@/server/services/documentAccess';
 import { FileService } from '@/server/services/file';
+import { assertPersonalSharedDocumentAccess } from '@/server/services/knowledgeBaseAccess';
 import { resolvePageAccess } from '@/server/services/pageCollab';
 import {
   snapshotPageThroughRoom,
@@ -344,6 +345,7 @@ export const documentRouter = router({
       const document = await ctx.documentModel.findById(input.id);
       if (!document) throw new TRPCError({ code: 'NOT_FOUND', message: 'Document not found' });
       await assertContentsNotInRestrictedKnowledgeBase(ctx, [input.id]);
+      await assertPersonalSharedDocumentAccess(ctx, [document], 'delete');
 
       const result = await ctx.documentService.deleteDocument(input.id);
       if (ctx.workspaceId) {
@@ -369,6 +371,7 @@ export const documentRouter = router({
         });
       }
       await assertContentsNotInRestrictedKnowledgeBase(ctx, ids);
+      await assertPersonalSharedDocumentAccess(ctx, documents, 'delete');
 
       const result = await ctx.documentService.deleteDocuments(ids);
       if (ctx.workspaceId) {
@@ -610,6 +613,15 @@ export const documentRouter = router({
         input.parentId !== undefined || needsStoredDocument
           ? await ctx.documentModel.findById(input.id)
           : undefined;
+
+      // Personal-share co-editors must clear edit+ before writing someone else's
+      // row. Own rows and workspace collaboration keep their existing gates.
+      if (!ctx.workspaceId) {
+        const sharedDoc = currentDocument ?? (await ctx.documentModel.findById(input.id));
+        if (sharedDoc) {
+          await assertPersonalSharedDocumentAccess(ctx, [sharedDoc], 'edit');
+        }
+      }
 
       // A move mutates both the source and destination trees as well as the
       // document. Only check when the parent really changes: several editor
