@@ -7,7 +7,7 @@ import type {
   ExtendParamsType,
   LobeDefaultAiModelListItem,
 } from 'model-bank';
-import { AiModelTypeSchema, ModelProvider } from 'model-bank';
+import { AiModelTypeSchema, CHAT_MODEL_IMAGE_GENERATION_PARAMS, ModelProvider } from 'model-bank';
 
 import type { ModelProviderKey } from '../types';
 import { EMBEDDING_MODEL_KEYWORDS } from './modelTypeKeywords';
@@ -561,10 +561,13 @@ const processModelCard = (
         ? 'embedding'
         : 'chat');
 
-  // image model can't find parameters
-  if (modelType === 'image' && !model.parameters && !knownModel?.parameters) {
-    return undefined;
-  }
+  // Remote image models (e.g. newly listed gpt-image-*) often arrive without a
+  // parameters schema. Dropping them hides vendor-provided models from "Fetch
+  // models"; keep a generic prompt/imageUrls schema so they stay selectable.
+  const imageParameters =
+    modelType === 'image'
+      ? (model.parameters ?? knownModel?.parameters ?? CHAT_MODEL_IMAGE_GENERATION_PARAMS)
+      : undefined;
 
   const mergedSettings = mergeSettings(model.settings, knownModel?.settings, options);
 
@@ -655,7 +658,7 @@ const processModelCard = (
     type: modelType,
     // current, only image model use the parameters field
     ...(modelType === 'image' && {
-      parameters: model.parameters ?? knownModel?.parameters,
+      parameters: imageParameters,
     }),
     ...(mergedSettings ? { settings: mergedSettings } : {}),
     video:

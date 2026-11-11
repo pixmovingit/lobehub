@@ -114,6 +114,10 @@ vi.mock('model-bank', () => ({
   AiModelTypeSchema: {
     options: ['chat', 'embedding', 'tts', 'asr', 'image', 'video', 'text2music', 'realtime'],
   },
+  CHAT_MODEL_IMAGE_GENERATION_PARAMS: {
+    imageUrls: { default: [] },
+    prompt: { default: '' },
+  },
   LOBE_DEFAULT_MODEL_LIST: mockDefaultModelList,
   loadModels: vi.fn().mockResolvedValue(mockDefaultModelList),
   ModelProvider: { LobeHub: 'lobehub' },
@@ -226,6 +230,20 @@ describe('modelParse', () => {
       expect(gpt4oResult.vision).toBe(true); // From keyword '4o'
       expect(gpt4oResult.displayName).toBe('gpt-4o'); // Default to id
       expect(gpt4oResult.enabled).toBe(false); // Default
+    });
+
+    it('keeps unknown image models by falling back to generic parameters', async () => {
+      const result = await processModelList(
+        [{ id: 'gpt-image-2.6-sunburst' }],
+        MODEL_LIST_CONFIGS.openai,
+      );
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        id: 'gpt-image-2.6-sunburst',
+        parameters: { imageUrls: { default: [] }, prompt: { default: '' } },
+        type: 'image',
+      });
     });
 
     it('should respect excluded keywords when determining capabilities for unknown models', async () => {
@@ -499,6 +517,20 @@ describe('modelParse', () => {
   });
 
   describe('processMultiProviderModelList', () => {
+    it('keeps remote image models that have no known parameters schema', async () => {
+      // Regression: ids matching IMAGE_MODEL_KEYWORDS used to be dropped when
+      // neither the vendor payload nor model-bank supplied `parameters`
+      // (e.g. newly listed gpt-image-2.6-* / MiniMax-H3-Image on aggregators).
+      const result = await processMultiProviderModelList(
+        [{ id: 'gpt-image-2.6-flare' }, { id: 'MiniMax-H3-Image' }],
+        'openai',
+      );
+
+      expect(result.map((model) => model.id)).toEqual(['gpt-image-2.6-flare', 'MiniMax-H3-Image']);
+      expect(result.every((model) => model.type === 'image')).toBe(true);
+      expect(result.every((model) => model.parameters?.prompt)).toBe(true);
+    });
+
     it('should detect provider for each model and apply correct config', async () => {
       const modelList = [
         { id: 'gpt-4' }, // openai
